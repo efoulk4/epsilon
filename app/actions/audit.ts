@@ -44,11 +44,11 @@ export async function runAccessibilityAudit(
     })
 
     // Wait for axe to be available
-    await page.waitForFunction(() => typeof window.axe !== 'undefined')
+    await page.waitForFunction(() => typeof (window as any).axe !== 'undefined')
 
     // Run Axe accessibility scan targeting WCAG 2.1 Level A and AA
     const axeResults = await page.evaluate(() => {
-      return new Promise((resolve) => {
+      return new Promise<any>((resolve) => {
         // @ts-ignore - axe is injected into the page
         window.axe.run(
           {
@@ -63,7 +63,7 @@ export async function runAccessibilityAudit(
           }
         )
       })
-    })
+    }) as any
 
     const violations = axeResults.violations
 
@@ -75,7 +75,7 @@ export async function runAccessibilityAudit(
       minor: 0,
     }
 
-    violations.forEach((violation) => {
+    violations.forEach((violation: any) => {
       const impact = violation.impact as ImpactLevel
       if (impact && violationsByImpact[impact] !== undefined) {
         violationsByImpact[impact]++
@@ -83,13 +83,13 @@ export async function runAccessibilityAudit(
     })
 
     // Transform violations to match our type structure
-    const transformedViolations = violations.map((violation) => ({
+    const transformedViolations = violations.map((violation: any) => ({
       id: violation.id,
       impact: (violation.impact || 'minor') as ImpactLevel,
       description: violation.description,
       help: violation.help,
       helpUrl: violation.helpUrl,
-      nodes: violation.nodes.map((node) => ({
+      nodes: violation.nodes.map((node: any) => ({
         html: node.html,
         target: node.target,
         failureSummary: node.failureSummary || 'No summary available',
@@ -105,7 +105,7 @@ export async function runAccessibilityAudit(
     }
 
     transformedViolations.sort(
-      (a, b) => impactOrder[a.impact] - impactOrder[b.impact]
+      (a: any, b: any) => impactOrder[a.impact as ImpactLevel] - impactOrder[b.impact as ImpactLevel]
     )
 
     // Build the audit result
