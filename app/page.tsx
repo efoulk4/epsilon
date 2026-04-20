@@ -1,23 +1,40 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { runAccessibilityAudit } from './actions/audit'
-import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
+import type { AuditResult, ImpactLevel, Violation } from '@/types/audit'
+import { calculateHealthScore, getHealthStatus } from './utils/healthScore'
+import { HealthScoreGauge } from './components/HealthScoreGauge'
 import {
-  AlertCircle,
-  CheckCircle,
-  Search,
-  ExternalLink,
-  AlertTriangle,
-  Info,
-  XCircle,
-} from 'lucide-react'
+  Page,
+  Card,
+  TextField,
+  Button,
+  Banner,
+  Text,
+  BlockStack,
+  InlineStack,
+  Badge,
+  Collapsible,
+  Link,
+  Box,
+  InlineGrid,
+} from '@shopify/polaris'
+import { SearchIcon } from '@shopify/polaris-icons'
 
 export default function Dashboard() {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [expandedImpact, setExpandedImpact] = useState<{
+    [key in ImpactLevel]?: boolean
+  }>({
+    critical: true,
+    serious: true,
+    moderate: false,
+    minor: false,
+  })
 
   const handleAudit = async () => {
     if (!url.trim()) {
@@ -45,276 +62,307 @@ export default function Dashboard() {
     }
   }
 
-  const getImpactColor = (impact: ImpactLevel) => {
+  const getImpactBadge = (impact: ImpactLevel): 'critical' | 'warning' | 'attention' | 'info' => {
     switch (impact) {
       case 'critical':
-        return 'bg-red-100 text-red-800 border-red-300'
+        return 'critical'
       case 'serious':
-        return 'bg-orange-100 text-orange-800 border-orange-300'
+        return 'warning'
       case 'moderate':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300'
+        return 'attention'
       case 'minor':
-        return 'bg-blue-100 text-blue-800 border-blue-300'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-300'
+        return 'info'
     }
   }
 
-  const getImpactIcon = (impact: ImpactLevel) => {
-    switch (impact) {
-      case 'critical':
-        return <XCircle className="w-5 h-5" />
-      case 'serious':
-        return <AlertCircle className="w-5 h-5" />
-      case 'moderate':
-        return <AlertTriangle className="w-5 h-5" />
-      case 'minor':
-        return <Info className="w-5 h-5" />
-    }
-  }
+  const toggleImpactSection = useCallback((impact: ImpactLevel) => {
+    setExpandedImpact((prev) => ({
+      ...prev,
+      [impact]: !prev[impact],
+    }))
+  }, [])
+
+  const groupViolationsByImpact = useCallback((violations: Violation[]) => {
+    const grouped: { [key in ImpactLevel]?: Violation[] } = {}
+
+    violations.forEach((violation) => {
+      if (!grouped[violation.impact]) {
+        grouped[violation.impact] = []
+      }
+      grouped[violation.impact]!.push(violation)
+    })
+
+    return grouped
+  }, [])
+
+  const healthScore = result ? calculateHealthScore(result) : 0
+  const healthStatus = result ? getHealthStatus(healthScore) : null
 
   return (
-    <div className="min-h-screen bg-polaris-surface">
-      {/* Header */}
-      <header className="bg-white border-b border-polaris-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-polaris-primary rounded-lg flex items-center justify-center">
-              <CheckCircle className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-polaris-text">
-                Accessibility Auditor
-              </h1>
-              <p className="text-sm text-polaris-textSubdued">
-                Zero-Footprint WCAG 2.1 Compliance Checker
-              </p>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <Page
+      title="Accessibility Auditor"
+      subtitle="Zero-Footprint WCAG 2.1 Compliance Checker"
+    >
+      <BlockStack gap="500">
         {/* Audit Input Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-polaris-border p-6 mb-6">
-          <h2 className="text-lg font-semibold text-polaris-text mb-4">
-            Run New Audit
-          </h2>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAudit()}
-                placeholder="https://example.com"
-                className="w-full px-4 py-2.5 border border-polaris-border rounded-lg focus:outline-none focus:ring-2 focus:ring-polaris-primary focus:border-transparent"
-                disabled={loading}
-              />
-            </div>
-            <button
-              onClick={handleAudit}
-              disabled={loading}
-              className="px-6 py-2.5 bg-polaris-primary text-white font-medium rounded-lg hover:bg-polaris-primaryDark focus:outline-none focus:ring-2 focus:ring-polaris-primary focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Scanning...
-                </>
-              ) : (
-                <>
-                  <Search className="w-5 h-5" />
-                  Run Audit
-                </>
-              )}
-            </button>
-          </div>
-          <p className="text-sm text-polaris-textSubdued mt-2">
-            Enter any publicly accessible URL to perform a WCAG 2.1 Level A/AA
-            accessibility audit
-          </p>
-        </div>
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">
+              Run New Audit
+            </Text>
+            <InlineStack gap="300" align="end">
+              <div style={{ flex: 1 }}>
+                <TextField
+                  label=""
+                  type="url"
+                  value={url}
+                  onChange={setUrl}
+                  placeholder="https://example.com"
+                  disabled={loading}
+                  autoComplete="off"
+                />
+              </div>
+              <Button
+                variant="primary"
+                onClick={handleAudit}
+                loading={loading}
+                icon={SearchIcon}
+              >
+                Run Audit
+              </Button>
+            </InlineStack>
+            <Text as="p" variant="bodyMd" tone="subdued">
+              Enter any publicly accessible URL to perform a WCAG 2.1 Level A/AA
+              accessibility audit
+            </Text>
+          </BlockStack>
+        </Card>
 
         {/* Error Display */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <h3 className="font-semibold text-red-900">Audit Failed</h3>
-              <p className="text-sm text-red-700 mt-1">{error}</p>
-            </div>
-          </div>
+          <Banner title="Audit Failed" tone="critical">
+            <p>{error}</p>
+          </Banner>
         )}
 
         {/* Results Display */}
-        {result && (
-          <div className="space-y-6">
-            {/* Summary Card */}
-            <div className="bg-white rounded-lg shadow-sm border border-polaris-border p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-polaris-text">
-                  Audit Results
-                </h2>
-                <span className="text-sm text-polaris-textSubdued">
-                  {new Date(result.timestamp).toLocaleString()}
-                </span>
-              </div>
+        {result && healthStatus && (
+          <BlockStack gap="500">
+            {/* Summary Card with Health Score */}
+            <Card>
+              <BlockStack gap="400">
+                <InlineStack align="space-between">
+                  <Text as="h2" variant="headingMd">
+                    Audit Results
+                  </Text>
+                  <Text as="span" variant="bodyMd" tone="subdued">
+                    {new Date(result.timestamp).toLocaleString()}
+                  </Text>
+                </InlineStack>
 
-              <div className="flex items-center gap-2 mb-4 text-polaris-textSubdued">
-                <ExternalLink className="w-4 h-4" />
-                <a
-                  href={result.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm hover:text-polaris-primary underline"
-                >
-                  {result.url}
-                </a>
-              </div>
+                <InlineStack gap="200" blockAlign="center">
+                  <Link url={result.url} target="_blank" removeUnderline>
+                    {result.url}
+                  </Link>
+                </InlineStack>
 
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
-                <div className="bg-polaris-surface rounded-lg p-4 border border-polaris-border">
-                  <div className="text-2xl font-bold text-polaris-text">
-                    {result.totalViolations}
-                  </div>
-                  <div className="text-sm text-polaris-textSubdued mt-1">
-                    Total Issues
-                  </div>
-                </div>
-                <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-                  <div className="text-2xl font-bold text-red-900">
-                    {result.violationsByImpact.critical}
-                  </div>
-                  <div className="text-sm text-red-700 mt-1">Critical</div>
-                </div>
-                <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                  <div className="text-2xl font-bold text-orange-900">
-                    {result.violationsByImpact.serious}
-                  </div>
-                  <div className="text-sm text-orange-700 mt-1">Serious</div>
-                </div>
-                <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                  <div className="text-2xl font-bold text-yellow-900">
-                    {result.violationsByImpact.moderate}
-                  </div>
-                  <div className="text-sm text-yellow-700 mt-1">Moderate</div>
-                </div>
-                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                  <div className="text-2xl font-bold text-blue-900">
-                    {result.violationsByImpact.minor}
-                  </div>
-                  <div className="text-sm text-blue-700 mt-1">Minor</div>
-                </div>
-              </div>
-            </div>
+                <InlineGrid columns={['oneThird', 'twoThirds']} gap="400">
+                  {/* Health Score Gauge */}
+                  <Box>
+                    <HealthScoreGauge
+                      score={healthScore}
+                      label={healthStatus.label}
+                      color={healthStatus.color}
+                    />
+                  </Box>
 
-            {/* Violations List */}
+                  {/* Stats Grid */}
+                  <InlineGrid columns={2} gap="400">
+                    <Card background="bg-surface-secondary">
+                      <BlockStack gap="200">
+                        <Text as="p" variant="heading2xl">
+                          {result.totalViolations}
+                        </Text>
+                        <Text as="p" variant="bodyMd" tone="subdued">
+                          Total Issues
+                        </Text>
+                      </BlockStack>
+                    </Card>
+                    <Card background="bg-surface-critical">
+                      <BlockStack gap="200">
+                        <Text as="p" variant="heading2xl">
+                          {result.violationsByImpact.critical}
+                        </Text>
+                        <Text as="p" variant="bodyMd">
+                          Critical
+                        </Text>
+                      </BlockStack>
+                    </Card>
+                    <Card background="bg-surface-warning">
+                      <BlockStack gap="200">
+                        <Text as="p" variant="heading2xl">
+                          {result.violationsByImpact.serious}
+                        </Text>
+                        <Text as="p" variant="bodyMd">
+                          Serious
+                        </Text>
+                      </BlockStack>
+                    </Card>
+                    <Card background="bg-surface-warning">
+                      <BlockStack gap="200">
+                        <Text as="p" variant="heading2xl">
+                          {result.violationsByImpact.moderate}
+                        </Text>
+                        <Text as="p" variant="bodyMd">
+                          Moderate
+                        </Text>
+                      </BlockStack>
+                    </Card>
+                  </InlineGrid>
+                </InlineGrid>
+              </BlockStack>
+            </Card>
+
+            {/* Violations List - Grouped by Impact */}
             {result.violations.length > 0 ? (
-              <div className="bg-white rounded-lg shadow-sm border border-polaris-border p-6">
-                <h3 className="text-lg font-semibold text-polaris-text mb-4">
-                  Accessibility Violations
-                </h3>
-                <div className="space-y-4">
-                  {result.violations.map((violation, index) => (
-                    <div
-                      key={`${violation.id}-${index}`}
-                      className={`border rounded-lg p-4 ${getImpactColor(
-                        violation.impact
-                      )}`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 mt-0.5">
-                          {getImpactIcon(violation.impact)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="font-semibold uppercase text-xs px-2 py-1 rounded bg-white bg-opacity-50">
-                              {violation.impact}
-                            </span>
-                            <h4 className="font-semibold">{violation.help}</h4>
-                          </div>
-                          <p className="text-sm mb-3">{violation.description}</p>
-                          <div className="text-sm mb-3">
-                            <strong>Affected Elements:</strong>{' '}
-                            {violation.nodes.length}
-                          </div>
-                          {violation.nodes.slice(0, 3).map((node, nodeIndex) => (
-                            <div
-                              key={nodeIndex}
-                              className="bg-white bg-opacity-50 rounded p-3 mb-2 text-sm"
-                            >
-                              <div className="font-mono text-xs mb-2 overflow-x-auto">
-                                {node.html}
-                              </div>
-                              <div className="text-xs text-polaris-textSubdued">
-                                Selector: {node.target.join(' > ')}
-                              </div>
-                            </div>
-                          ))}
-                          {violation.nodes.length > 3 && (
-                            <p className="text-sm italic">
-                              + {violation.nodes.length - 3} more affected
-                              elements
-                            </p>
-                          )}
-                          <a
-                            href={violation.helpUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-sm font-medium hover:underline mt-2"
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h3" variant="headingMd">
+                    Accessibility Violations
+                  </Text>
+
+                  {(['critical', 'serious', 'moderate', 'minor'] as ImpactLevel[]).map((impact) => {
+                    const grouped = groupViolationsByImpact(result.violations)
+                    const impactViolations = grouped[impact] || []
+
+                    if (impactViolations.length === 0) return null
+
+                    return (
+                      <Box key={impact}>
+                        <BlockStack gap="300">
+                          <button
+                            onClick={() => toggleImpactSection(impact)}
+                            style={{
+                              all: 'unset',
+                              cursor: 'pointer',
+                              display: 'block',
+                              width: '100%',
+                            }}
                           >
-                            Learn more <ExternalLink className="w-3 h-3" />
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                            <InlineStack align="space-between" blockAlign="center">
+                              <InlineStack gap="300" blockAlign="center">
+                                <Badge tone={getImpactBadge(impact)}>
+                                  {impact.toUpperCase()}
+                                </Badge>
+                                <Text as="h4" variant="headingSm">
+                                  {impactViolations.length}{' '}
+                                  {impactViolations.length === 1 ? 'issue' : 'issues'}
+                                </Text>
+                              </InlineStack>
+                              <Text as="span" variant="bodyMd">
+                                {expandedImpact[impact] ? '−' : '+'}
+                              </Text>
+                            </InlineStack>
+                          </button>
+
+                          <Collapsible
+                            open={expandedImpact[impact] || false}
+                            id={`${impact}-violations`}
+                            transition={{
+                              duration: '200ms',
+                              timingFunction: 'ease-in-out',
+                            }}
+                          >
+                            <BlockStack gap="300">
+                              {impactViolations.map((violation, index) => (
+                                <Card key={`${violation.id}-${index}`}>
+                                  <BlockStack gap="300">
+                                    <Text as="h5" variant="headingSm">
+                                      {violation.help}
+                                    </Text>
+                                    <Text as="p" variant="bodyMd" tone="subdued">
+                                      {violation.description}
+                                    </Text>
+                                    <Text as="p" variant="bodyMd">
+                                      <strong>Affected Elements:</strong>{' '}
+                                      {violation.nodes.length}
+                                    </Text>
+
+                                    {violation.nodes.slice(0, 3).map((node, nodeIndex) => (
+                                      <Box
+                                        key={nodeIndex}
+                                        background="bg-surface-secondary"
+                                        padding="300"
+                                        borderRadius="200"
+                                      >
+                                        <BlockStack gap="200">
+                                          <code
+                                            style={{
+                                              fontSize: '12px',
+                                              wordBreak: 'break-all',
+                                            }}
+                                          >
+                                            {node.html}
+                                          </code>
+                                          <Text as="p" variant="bodySm" tone="subdued">
+                                            Selector: {node.target.join(' > ')}
+                                          </Text>
+                                        </BlockStack>
+                                      </Box>
+                                    ))}
+
+                                    {violation.nodes.length > 3 && (
+                                      <Text as="p" variant="bodyMd" tone="subdued" fontStyle="italic">
+                                        + {violation.nodes.length - 3} more affected elements
+                                      </Text>
+                                    )}
+
+                                    <Link
+                                      url={violation.helpUrl}
+                                      target="_blank"
+                                      removeUnderline
+                                    >
+                                      Learn more
+                                    </Link>
+                                  </BlockStack>
+                                </Card>
+                              ))}
+                            </BlockStack>
+                          </Collapsible>
+                        </BlockStack>
+                      </Box>
+                    )
+                  })}
+                </BlockStack>
+              </Card>
             ) : (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-6 flex items-center gap-3">
-                <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-green-900">
-                    No Violations Found
-                  </h3>
-                  <p className="text-sm text-green-700 mt-1">
-                    This page passed all WCAG 2.1 Level A/AA checks!
-                  </p>
-                </div>
-              </div>
+              <Banner tone="success" title="No Violations Found">
+                <p>This page passed all WCAG 2.1 Level A/AA checks!</p>
+              </Banner>
             )}
-          </div>
+          </BlockStack>
         )}
 
         {/* Info Footer */}
         {!result && !error && !loading && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mt-6">
-            <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <h3 className="font-semibold text-blue-900 mb-2">
-                  About This Tool
-                </h3>
-                <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-                  <li>
-                    Server-side auditing using Playwright and Axe-core
-                  </li>
-                  <li>
-                    Zero client-side JavaScript overlays for better performance
-                  </li>
-                  <li>WCAG 2.1 Level A and AA compliance checking</li>
-                  <li>
-                    Detailed violation reports with actionable recommendations
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
+          <Banner tone="info" title="About This Tool">
+            <BlockStack gap="200">
+              <Text as="p" variant="bodyMd">
+                • Server-side auditing using Playwright and Axe-core
+              </Text>
+              <Text as="p" variant="bodyMd">
+                • Zero client-side JavaScript overlays for better performance
+              </Text>
+              <Text as="p" variant="bodyMd">
+                • WCAG 2.1 Level A and AA compliance checking
+              </Text>
+              <Text as="p" variant="bodyMd">
+                • Detailed violation reports with actionable recommendations
+              </Text>
+            </BlockStack>
+          </Banner>
         )}
-      </main>
-    </div>
+      </BlockStack>
+    </Page>
   )
 }

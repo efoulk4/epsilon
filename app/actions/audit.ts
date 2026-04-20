@@ -1,7 +1,6 @@
 'use server'
 
 import { chromium } from 'playwright'
-import AxeBuilder from '@axe-core/playwright'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
 
 export async function runAccessibilityAudit(
@@ -39,10 +38,32 @@ export async function runAccessibilityAudit(
       timeout: 30000,
     })
 
+    // Inject axe-core from CDN
+    await page.addScriptTag({
+      url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.0/axe.min.js',
+    })
+
+    // Wait for axe to be available
+    await page.waitForFunction(() => typeof window.axe !== 'undefined')
+
     // Run Axe accessibility scan targeting WCAG 2.1 Level A and AA
-    const axeResults = await new AxeBuilder({ page })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze()
+    const axeResults = await page.evaluate(() => {
+      return new Promise((resolve) => {
+        // @ts-ignore - axe is injected into the page
+        window.axe.run(
+          {
+            runOnly: {
+              type: 'tag',
+              values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'],
+            },
+          },
+          (err: Error, results: any) => {
+            if (err) throw err
+            resolve(results)
+          }
+        )
+      })
+    })
 
     const violations = axeResults.violations
 
