@@ -1,0 +1,144 @@
+'use server'
+
+import { chromium } from 'playwright'
+import AxeBuilder from '@axe-core/playwright'
+import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
+
+export async function runAccessibilityAudit(
+  url: string
+): Promise<AuditResult | AuditError> {
+  let browser = null
+
+  try {
+    // Validate URL
+    const parsedUrl = new URL(url)
+    if (!parsedUrl.protocol.startsWith('http')) {
+      return {
+        error: 'Invalid URL',
+        details: 'URL must start with http:// or https://',
+      }
+    }
+
+    // Launch headless Chromium browser
+    browser = await chromium.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
+
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 720 },
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    })
+
+    const page = await context.newPage()
+
+    // Navigate to the URL with timeout
+    await page.goto(url, {
+      waitUntil: 'networkidle',
+      timeout: 30000,
+    })
+
+    // Run Axe accessibility scan targeting WCAG 2.1 Level A and AA
+    const axeResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze()
+
+    const violations = axeResults.violations
+
+    // Count violations by impact level
+    const violationsByImpact = {
+      critical: 0,
+      serious: 0,
+      moderate: 0,
+      minor: 0,
+    }
+
+    violations.forEach((violation) => {
+      const impact = violation.impact as ImpactLevel
+      if (impact && violationsByImpact[impact] !== undefined) {
+        violationsByImpact[impact]++
+      }
+    })
+
+    // Transform violations to match our type structure
+    const transformedViolations = violations.map((violation) => ({
+      id: violation.id,
+      impact: (violation.impact || 'minor') as ImpactLevel,
+      description: violation.description,
+      help: violation.help,
+      helpUrl: violation.helpUrl,
+      nodes: violation.nodes.map((node) => ({
+        html: node.html,
+        target: node.target,
+        failureSummary: node.failureSummary || 'No summary available',
+      })),
+    }))
+
+    // Sort violations by impact (critical first)
+    const impactOrder: Record<ImpactLevel, number> = {
+      critical: 0,
+      serious: 1,
+      moderate: 2,
+      minor: 3,
+    }
+
+    transformedViolations.sort(
+      (a, b) => impactOrder[a.impact] - impactOrder[b.impact]
+    )
+
+    // Build the audit result
+    const result: AuditResult = {
+      url,
+      timestamp: new Date().toISOString(),
+      totalViolations: violations.length,
+      violations: transformedViolations,
+      violationsByImpact,
+    }
+
+    return result
+  } catch (error) {
+    console.error('Audit error:', error)
+
+    if (error instanceof Error) {
+      return {
+        error: 'Audit failed',
+        details: error.message,
+      }
+    }
+
+    return {
+      error: 'Unknown error occurred during audit',
+    }
+  } finally {
+    // CRITICAL: Always close the browser to prevent memory leaks
+    if (browser) {
+      await browser.close()
+    }
+  }
+}
+
+// Placeholder for future Supabase integration
+export async function saveAuditToDatabase(
+  auditResult: AuditResult
+): Promise<{ success: boolean; id?: string }> {
+  // TODO: Implement Supabase integration
+  // Example:
+  // const { data, error } = await supabase
+  //   .from('audits')
+  //   .insert({
+  //     url: auditResult.url,
+  //     timestamp: auditResult.timestamp,
+  //     total_violations: auditResult.totalViolations,
+  //     violations: auditResult.violations,
+  //     violations_by_impact: auditResult.violationsByImpact,
+  //   })
+  //   .select()
+
+  console.log('Audit result ready for database save:', {
+    url: auditResult.url,
+    totalViolations: auditResult.totalViolations,
+  })
+
+  return { success: true }
+}
