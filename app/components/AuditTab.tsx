@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { runAccessibilityAudit, saveAuditToDatabase } from '../actions/audit'
+import { useState, useCallback, useEffect } from 'react'
+import { runAccessibilityAudit, runAccessibilityAuditForShop, saveAuditToDatabase } from '../actions/audit'
 import type { AuditResult, ImpactLevel, Violation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
 import { AltTextFixModal } from './AltTextFixModal'
+import { useSearchParams } from 'next/navigation'
 import {
   Card,
   TextField,
@@ -20,13 +21,16 @@ import {
   Box,
   InlineGrid,
 } from '@shopify/polaris'
-import { SearchIcon } from '@shopify/polaris-icons'
+import { SearchIcon, StoreIcon } from '@shopify/polaris-icons'
 
 export function AuditTab() {
+  const searchParams = useSearchParams()
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [shop, setShop] = useState<string | null>(null)
+  const [isEmbedded, setIsEmbedded] = useState(false)
   const [expandedImpact, setExpandedImpact] = useState<{
     [key in ImpactLevel]?: boolean
   }>({
@@ -40,6 +44,55 @@ export function AuditTab() {
     url: string
     html: string
   } | null>(null)
+
+  // Detect if running in Shopify embedded context
+  useEffect(() => {
+    const shopParam = searchParams.get('shop')
+    const hostParam = searchParams.get('host')
+
+    if (shopParam) {
+      setShop(shopParam)
+      setIsEmbedded(true)
+    } else if (typeof window !== 'undefined') {
+      const storedShop = sessionStorage.getItem('shopify_shop')
+      if (storedShop) {
+        setShop(storedShop)
+        setIsEmbedded(true)
+      }
+    }
+  }, [searchParams])
+
+  const handleAuditMyStore = async () => {
+    if (!shop) {
+      setError('Shop information not found')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      const auditResult = await runAccessibilityAuditForShop(shop)
+
+      if ('error' in auditResult) {
+        setError(auditResult.details || auditResult.error)
+      } else {
+        setResult(auditResult)
+
+        // Save audit to database
+        const saveResult = await saveAuditToDatabase(auditResult)
+        if (!saveResult.success && saveResult.error !== 'Supabase not configured') {
+          console.error('Failed to save audit to database:', saveResult.error)
+        }
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleAudit = async () => {
     if (!url.trim()) {
@@ -124,11 +177,40 @@ export function AuditTab() {
 
   return (
     <BlockStack gap="500">
-      {/* Audit Input Card */}
+      {/* Shopify Store Audit Card - Only shown in embedded mode */}
+      {isEmbedded && shop && (
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">
+              Audit Your Store
+            </Text>
+            <InlineStack gap="300" align="space-between" blockAlign="center">
+              <Box>
+                <Text as="p" variant="bodyMd" tone="subdued">
+                  Run an accessibility audit on your online storefront
+                </Text>
+                <Text as="p" variant="bodySm" tone="subdued">
+                  Store: {shop}
+                </Text>
+              </Box>
+              <Button
+                variant="primary"
+                onClick={handleAuditMyStore}
+                loading={loading}
+                icon={StoreIcon}
+              >
+                Audit My Store
+              </Button>
+            </InlineStack>
+          </BlockStack>
+        </Card>
+      )}
+
+      {/* Manual URL Audit Card */}
       <Card>
         <BlockStack gap="400">
           <Text as="h2" variant="headingMd">
-            Run New Audit
+            {isEmbedded ? 'Audit Custom URL' : 'Run New Audit'}
           </Text>
           <InlineStack gap="300" align="end">
             <div style={{ flex: 1 }}>
@@ -143,7 +225,7 @@ export function AuditTab() {
               />
             </div>
             <Button
-              variant="primary"
+              variant={isEmbedded ? 'secondary' : 'primary'}
               onClick={handleAudit}
               loading={loading}
               icon={SearchIcon}

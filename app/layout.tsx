@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { PolarisProvider } from './providers/PolarisProvider'
+import { AppBridgeProvider } from './components/providers/AppBridgeProvider'
+import { Suspense } from 'react'
 
 export const metadata: Metadata = {
   title: 'Accessibility Auditor - Zero-Footprint WCAG Checker',
@@ -15,7 +17,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PolarisProvider>{children}</PolarisProvider>
+        <Suspense fallback={<div>Loading...</div>}>
+          <AppBridgeProvider>
+            <PolarisProvider>{children}</PolarisProvider>
+          </AppBridgeProvider>
+        </Suspense>
       </body>
     </html>
   )

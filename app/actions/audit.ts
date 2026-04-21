@@ -4,6 +4,32 @@ import { chromium } from 'playwright'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { calculateHealthScore } from '@/app/utils/healthScore'
+import { getShopOnlineStoreUrl } from '@/app/utils/shopifyClient'
+
+export async function runAccessibilityAuditForShop(
+  shop: string
+): Promise<AuditResult | AuditError> {
+  try {
+    // Get the shop's online store URL using Shopify Admin API
+    const storeUrl = await getShopOnlineStoreUrl(shop)
+
+    if (!storeUrl) {
+      return {
+        error: 'Could not retrieve shop URL',
+        details: 'Failed to fetch the online store URL from Shopify Admin API',
+      }
+    }
+
+    // Run the standard audit on the shop's URL
+    return await runAccessibilityAudit(storeUrl)
+  } catch (error) {
+    console.error('Error running audit for shop:', error)
+    return {
+      error: 'Failed to run audit for shop',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
 
 export async function runAccessibilityAudit(
   url: string
