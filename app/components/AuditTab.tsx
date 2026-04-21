@@ -111,12 +111,8 @@ export function AuditTab() {
         setError(auditResult.details || auditResult.error)
       } else {
         setResult(auditResult)
-
-        // Save audit to database
-        const saveResult = await saveAuditToDatabase(auditResult)
-        if (!saveResult.success && saveResult.error !== 'Supabase not configured') {
-          console.error('Failed to save audit to database:', saveResult.error)
-        }
+        // Note: Manual URL audits are not saved to database
+        // Only Shopify store audits (via handleAuditMyStore) are persisted
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
