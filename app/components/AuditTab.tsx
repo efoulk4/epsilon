@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { runAccessibilityAudit, runAccessibilityAuditForShop, saveAuditToDatabase } from '../actions/audit'
-import type { AuditResult, ImpactLevel, Violation } from '@/types/audit'
+import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
 import { AltTextFixModal } from './AltTextFixModal'
@@ -146,8 +146,8 @@ export function AuditTab() {
     }))
   }, [])
 
-  const groupViolationsByImpact = useCallback((violations: Violation[]) => {
-    const grouped: { [key in ImpactLevel]?: Violation[] } = {}
+  const groupViolationsByImpact = useCallback((violations: AuditViolation[]) => {
+    const grouped: { [key in ImpactLevel]?: AuditViolation[] } = {}
 
     violations.forEach((violation) => {
       if (!grouped[violation.impact]) {
