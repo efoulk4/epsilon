@@ -16,7 +16,16 @@ CREATE INDEX IF NOT EXISTS idx_shopify_sessions_shop ON shopify_sessions(shop);
 -- Add RLS policies
 ALTER TABLE shopify_sessions ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policy if it exists
+DROP POLICY IF EXISTS "Service role can manage sessions" ON shopify_sessions;
+
 -- Allow service role to manage all sessions
+-- Note: auth.jwt() is used to check the role claim in the JWT token
 CREATE POLICY "Service role can manage sessions" ON shopify_sessions
   FOR ALL
-  USING (auth.role() = 'service_role');
+  USING (
+    (current_setting('request.jwt.claims', true)::json->>'role' = 'service_role')
+  )
+  WITH CHECK (
+    (current_setting('request.jwt.claims', true)::json->>'role' = 'service_role')
+  );

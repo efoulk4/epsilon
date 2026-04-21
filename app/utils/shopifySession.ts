@@ -27,6 +27,14 @@ export async function getShopifySession(shop: string): Promise<ShopifySession | 
     auth: {
       autoRefreshToken: false,
       persistSession: false
+    },
+    db: {
+      schema: 'public'
+    },
+    global: {
+      headers: {
+        'apikey': supabaseServiceKey
+      }
     }
   })
 

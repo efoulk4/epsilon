@@ -36,20 +36,39 @@ export async function GET(request: NextRequest) {
 
     // Store session in Supabase
     if (supabaseUrl && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey)
+      console.log('[OAuth Callback] Storing session for shop:', session.shop)
 
-      const { error } = await supabase.from('shopify_sessions').upsert({
+      const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        },
+        db: {
+          schema: 'public'
+        },
+        global: {
+          headers: {
+            'apikey': supabaseServiceKey
+          }
+        }
+      })
+
+      const { data, error } = await supabase.from('shopify_sessions').upsert({
         shop: session.shop,
         access_token: session.accessToken,
         scope: session.scope,
         expires_at: session.expires ? new Date(session.expires).toISOString() : null,
         is_online: session.isOnline,
         updated_at: new Date().toISOString(),
-      })
+      }).select()
 
       if (error) {
-        console.error('Failed to store session in Supabase:', error)
+        console.error('[OAuth Callback] Failed to store session in Supabase:', error)
+      } else {
+        console.log('[OAuth Callback] Session stored successfully:', data)
       }
+    } else {
+      console.error('[OAuth Callback] Supabase credentials missing')
     }
 
     // Redirect to app with shop and host params
