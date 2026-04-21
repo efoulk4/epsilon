@@ -1,6 +1,7 @@
 'use server'
 
-import { chromium } from 'playwright'
+import { chromium } from 'playwright-core'
+import chromiumPkg from '@sparticuz/chromium'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { calculateHealthScore } from '@/app/utils/healthScore'
@@ -47,18 +48,16 @@ export async function runAccessibilityAudit(
     }
 
     // Launch headless Chromium browser
+    // Use serverless-optimized chromium in production
+    const isProduction = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
+
     browser = await chromium.launch({
-      headless: true,
-      args: [
+      args: isProduction ? chromiumPkg.args : [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
       ],
+      executablePath: isProduction ? await chromiumPkg.executablePath() : undefined,
+      headless: chromiumPkg.headless,
     })
 
     const context = await browser.newContext({
