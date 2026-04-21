@@ -6,6 +6,7 @@ import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
 import { AltTextFixModal } from './AltTextFixModal'
+import { fixContrastRatio } from '../services/remediation'
 import { useSearchParams } from 'next/navigation'
 import {
   Card,
@@ -44,6 +45,8 @@ export function AuditTab() {
     url: string
     html: string
   } | null>(null)
+  const [fixingViolations, setFixingViolations] = useState<Set<string>>(new Set())
+  const [fixResults, setFixResults] = useState<Map<string, { success: boolean; message: string }>>(new Map())
 
   // Detect if running in Shopify embedded context
   useEffect(() => {
@@ -165,6 +168,58 @@ export function AuditTab() {
     if (imageUrl) {
       setSelectedImage({ url: imageUrl, html })
       setAltTextModalOpen(true)
+    }
+  }
+
+  const handleFixViolation = async (violationId: string, violationType: string) => {
+    if (!shop) {
+      alert('Shop information not available. Fixes only work in embedded mode.')
+      return
+    }
+
+    const fixKey = `${violationId}-fix`
+    setFixingViolations((prev) => new Set(prev).add(fixKey))
+
+    try {
+      if (violationType === 'color-contrast') {
+        // Example: Extract colors from violation (this would need actual parsing logic)
+        const result = await fixContrastRatio(
+          shop,
+          'theme-id-placeholder', // Would need to get actual theme ID
+          'foreground-key',
+          'background-key',
+          '#000000', // Would extract from violation
+          '#FFFFFF' // Would extract from violation
+        )
+
+        if (result.success) {
+          setFixResults((prev) => {
+            const newMap = new Map(prev)
+            newMap.set(fixKey, {
+              success: true,
+              message: `Proposed compliant color: ${result.proposedColor}`,
+            })
+            return newMap
+          })
+        } else {
+          throw new Error(result.error || 'Failed to calculate compliant color')
+        }
+      }
+    } catch (error) {
+      setFixResults((prev) => {
+        const newMap = new Map(prev)
+        newMap.set(fixKey, {
+          success: false,
+          message: error instanceof Error ? error.message : 'Fix failed',
+        })
+        return newMap
+      })
+    } finally {
+      setFixingViolations((prev) => {
+        const newSet = new Set(prev)
+        newSet.delete(fixKey)
+        return newSet
+      })
     }
   }
 
@@ -372,15 +427,43 @@ export function AuditTab() {
                           }}
                         >
                           <BlockStack gap="300">
-                            {impactViolations.map((violation, index) => (
+                            {impactViolations.map((violation, index) => {
+                              const fixKey = `${violation.id}-fix`
+                              const isFixing = fixingViolations.has(fixKey)
+                              const fixResult = fixResults.get(fixKey)
+
+                              return (
                               <Card key={`${violation.id}-${index}`}>
                                 <BlockStack gap="300">
-                                  <Text as="h5" variant="headingSm">
-                                    {violation.help}
-                                  </Text>
+                                  <InlineStack align="space-between" blockAlign="start">
+                                    <div style={{ flex: 1 }}>
+                                      <Text as="h5" variant="headingSm">
+                                        {violation.help}
+                                      </Text>
+                                    </div>
+                                    {/* Show Fix button for serious violations (excluding image-alt which has custom handler) */}
+                                    {isEmbedded &&
+                                     violation.impact === 'serious' &&
+                                     violation.id !== 'image-alt' &&
+                                     violation.id.includes('contrast') && (
+                                      <Button
+                                        size="slim"
+                                        loading={isFixing}
+                                        onClick={() => handleFixViolation(violation.id, 'color-contrast')}
+                                        tone="success"
+                                      >
+                                        {isFixing ? 'Analyzing...' : 'Fix'}
+                                      </Button>
+                                    )}
+                                  </InlineStack>
                                   <Text as="p" variant="bodyMd" tone="subdued">
                                     {violation.description}
                                   </Text>
+                                  {fixResult && (
+                                    <Banner tone={fixResult.success ? 'success' : 'critical'}>
+                                      {fixResult.message}
+                                    </Banner>
+                                  )}
                                   <Text as="p" variant="bodyMd">
                                     <strong>Affected Elements:</strong>{' '}
                                     {violation.nodes.length}
@@ -432,7 +515,7 @@ export function AuditTab() {
                                   </Link>
                                 </BlockStack>
                               </Card>
-                            ))}
+                            )})}
                           </BlockStack>
                         </Collapsible>
                       </BlockStack>
