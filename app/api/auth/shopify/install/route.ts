@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
       shop: sanitizedShop,
       callbackPath: '/api/auth/shopify/callback',
       isOnline: false, // Offline access for server-side API calls
+      rawRequest: request as any,
     })
 
     // Redirect to Shopify OAuth with ngrok bypass header
