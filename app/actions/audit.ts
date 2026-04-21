@@ -3,7 +3,7 @@
 import { chromium } from 'playwright-core'
 import chromiumPkg from '@sparticuz/chromium'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
-import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase'
 import { calculateHealthScore } from '@/app/utils/healthScore'
 import { getShopOnlineStoreUrl } from '@/app/utils/shopifyClient'
 
@@ -182,7 +182,7 @@ export async function saveAuditToDatabase(
   try {
     const healthScore = calculateHealthScore(auditResult)
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('audits')
       .insert({
         url: auditResult.url,
@@ -199,6 +199,7 @@ export async function saveAuditToDatabase(
       return { success: false, error: error.message }
     }
 
+    console.log('[saveAuditToDatabase] Successfully saved audit:', data[0]?.id)
     return { success: true, id: data[0]?.id }
   } catch (error) {
     console.error('Unexpected error saving audit:', error)
@@ -222,7 +223,7 @@ export async function getAuditHistory(
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('audits')
       .select('*')
       .eq('url', url)
