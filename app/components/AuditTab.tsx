@@ -422,7 +422,7 @@ export function AuditTab() {
                                   ))}
 
                                   {violation.nodes.length > 3 && (
-                                    <Text as="p" variant="bodyMd" tone="subdued" fontStyle="italic">
+                                    <Text as="p" variant="bodyMd" tone="subdued">
                                       + {violation.nodes.length - 3} more affected elements
                                     </Text>
                                   )}
