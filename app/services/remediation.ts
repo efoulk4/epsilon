@@ -318,7 +318,7 @@ export async function fixViolationWithAI(
 
     console.log('[fixViolationWithAI] Analyzing violation:', violation.id)
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
 
     // Create a detailed prompt for the AI agent
     const prompt = `You are an accessibility expert helping fix WCAG violations in a Shopify store.
@@ -446,7 +446,7 @@ export async function fixProductAltText(
     }
 
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
 
       const prompt = `Analyze this product image and generate a concise, descriptive alt text (max 125 characters) suitable for e-commerce. Focus on key product features, colors, and characteristics that would help visually impaired users understand what's being sold. Image URL: ${imageRecord.url}`
 
