@@ -57,7 +57,7 @@ export async function runAccessibilityAudit(
         '--disable-setuid-sandbox',
       ],
       executablePath: isProduction ? await chromiumPkg.executablePath() : undefined,
-      headless: chromiumPkg.headless,
+      headless: true,
     })
 
     const context = await browser.newContext({
