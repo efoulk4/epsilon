@@ -11,15 +11,11 @@ export async function runAccessibilityAuditForShop(
   shop: string
 ): Promise<AuditResult | AuditError> {
   try {
-    // Get the shop's online store URL using Shopify Admin API
-    const storeUrl = await getShopOnlineStoreUrl(shop)
+    // For now, construct the store URL directly from the shop domain
+    // This works because Shopify stores are always at https://{shop}
+    const storeUrl = `https://${shop}`
 
-    if (!storeUrl) {
-      return {
-        error: 'Could not retrieve shop URL',
-        details: 'Failed to fetch the online store URL from Shopify Admin API',
-      }
-    }
+    console.log(`[runAccessibilityAuditForShop] Auditing shop: ${shop} at URL: ${storeUrl}`)
 
     // Run the standard audit on the shop's URL
     return await runAccessibilityAudit(storeUrl)
