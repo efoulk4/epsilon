@@ -529,7 +529,7 @@ export function AuditTab() {
                                               {!fixResult.appliedFix && fixResult.cssCode && (
                                                 <BlockStack gap="300">
                                                   <Box
-                                                    background="bg-surface-warning-subdued"
+                                                    background="bg-surface-warning"
                                                     padding="300"
                                                     borderRadius="200"
                                                   >
