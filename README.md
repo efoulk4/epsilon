@@ -4,21 +4,35 @@ A modern, server-side accessibility auditing tool built specifically for Shopify
 
 ## Features
 
+### Core Features
 - **Server-Side Auditing**: Uses Playwright and Axe-core to perform audits on the server, avoiding client-side performance impact
 - **Zero-Footprint**: No JavaScript overlays or widgets injected into your site
 - **WCAG 2.1 Compliance**: Checks for WCAG 2.1 Level A and AA violations
 - **Detailed Reports**: Provides comprehensive violation details with actionable recommendations
 - **Impact-Based Categorization**: Violations sorted by impact (Critical, Serious, Moderate, Minor)
-- **Modern UI**: Polaris-inspired interface built with Tailwind CSS
-- **Shopify Ready**: Designed for Shopify embedded apps (Polaris UI components)
+- **Health Score Gauge**: Visual 0-100 score calculated from violation severity
+- **Shopify Polaris UI**: Professional interface using official Shopify design system
+
+### AI-Powered Features
+- **🤖 AI Alt Text Generation**: Automatically generate descriptive alt text for images using Google Gemini Vision AI
+- **⚡ Fix Now Button**: One-click fixes for missing alt text on images
+- **✏️ Manual Override**: Edit AI-generated suggestions before saving
+- **🔌 Shopify Integration**: Save alt text directly back to Shopify products (optional)
+
+### History & Tracking
+- **📊 Audit History**: Track accessibility improvements over time with Supabase
+- **📈 Health Score Trends**: Visualize health score changes with interactive charts
+- **🗂️ Violations Breakdown**: See how each severity level trends over 30 days
 
 ## Tech Stack
 
 - **Framework**: Next.js 15 (App Router)
-- **Styling**: Tailwind CSS + Lucide Icons
-- **Logic Engine**: Playwright (Chromium) + @axe-core/playwright
-- **Backend**: Supabase (Auth & Audit Logs) - *Placeholder for future implementation*
-- **UI Inspiration**: Shopify Polaris
+- **UI**: Shopify Polaris + Tailwind CSS
+- **Auditing**: Playwright (Chromium) + Axe-core
+- **AI**: Google Gemini 1.5 Flash (Vision API)
+- **Database**: Supabase (PostgreSQL)
+- **Charts**: Recharts
+- **Icons**: Shopify Polaris Icons
 
 ## Prerequisites
 
@@ -53,14 +67,22 @@ npx playwright install chromium
 
 ### 3. Environment Setup
 
-Copy the `.env.local` file and update with your Supabase credentials (when ready):
+The `.env.local` file is already created with placeholders. Update the following when ready:
 
-```bash
-# .env.local is already created with placeholders
-# Update these values when you're ready to integrate Supabase:
-# NEXT_PUBLIC_SUPABASE_URL=your_actual_supabase_url
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=your_actual_supabase_anon_key
+#### Optional: Supabase (for audit history)
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_actual_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_actual_supabase_anon_key
 ```
+See `SUPABASE_SETUP.md` for detailed setup instructions.
+
+#### Optional: AI Features (for alt text generation)
+```env
+GEMINI_API_KEY=your_gemini_api_key
+SHOPIFY_ACCESS_TOKEN=your_shopify_access_token
+SHOPIFY_STORE_DOMAIN=your-store.myshopify.com
+```
+See `AI_FEATURES_SETUP.md` for detailed setup instructions.
 
 ### 4. Run Development Server
 

@@ -2,6 +2,8 @@
 
 import { chromium } from 'playwright'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
+import { supabase, isSupabaseConfigured } from '@/lib/supabase'
+import { calculateHealthScore } from '@/app/utils/healthScore'
 
 export async function runAccessibilityAudit(
   url: string
@@ -139,27 +141,80 @@ export async function runAccessibilityAudit(
   }
 }
 
-// Placeholder for future Supabase integration
 export async function saveAuditToDatabase(
   auditResult: AuditResult
-): Promise<{ success: boolean; id?: string }> {
-  // TODO: Implement Supabase integration
-  // Example:
-  // const { data, error } = await supabase
-  //   .from('audits')
-  //   .insert({
-  //     url: auditResult.url,
-  //     timestamp: auditResult.timestamp,
-  //     total_violations: auditResult.totalViolations,
-  //     violations: auditResult.violations,
-  //     violations_by_impact: auditResult.violationsByImpact,
-  //   })
-  //   .select()
+): Promise<{ success: boolean; id?: string; error?: string }> {
+  if (!isSupabaseConfigured) {
+    console.warn('Supabase not configured. Skipping database save.')
+    return { success: false, error: 'Supabase not configured' }
+  }
 
-  console.log('Audit result ready for database save:', {
-    url: auditResult.url,
-    totalViolations: auditResult.totalViolations,
-  })
+  try {
+    const healthScore = calculateHealthScore(auditResult)
 
-  return { success: true }
+    const { data, error } = await supabase
+      .from('audits')
+      .insert({
+        url: auditResult.url,
+        timestamp: auditResult.timestamp,
+        total_violations: auditResult.totalViolations,
+        violations: auditResult.violations,
+        violations_by_impact: auditResult.violationsByImpact,
+        health_score: healthScore,
+      })
+      .select()
+
+    if (error) {
+      console.error('Error saving audit to database:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, id: data[0]?.id }
+  } catch (error) {
+    console.error('Unexpected error saving audit:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+export async function getAuditHistory(
+  url: string,
+  days: number = 30
+): Promise<AuditResult[]> {
+  if (!isSupabaseConfigured) {
+    console.warn('Supabase not configured. Cannot fetch audit history.')
+    return []
+  }
+
+  try {
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days)
+
+    const { data, error } = await supabase
+      .from('audits')
+      .select('*')
+      .eq('url', url)
+      .gte('created_at', startDate.toISOString())
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching audit history:', error)
+      return []
+    }
+
+    return (
+      data?.map((row) => ({
+        url: row.url,
+        timestamp: row.timestamp,
+        totalViolations: row.total_violations,
+        violations: row.violations,
+        violationsByImpact: row.violations_by_impact,
+      })) || []
+    )
+  } catch (error) {
+    console.error('Unexpected error fetching audit history:', error)
+    return []
+  }
 }
