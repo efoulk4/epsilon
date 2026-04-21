@@ -21,11 +21,13 @@ export async function getShopifyGraphQLClient(shop: string) {
 
   const client = new shopify.clients.Graphql({
     session: {
+      id: `offline_${session.shop}`,
       shop: session.shop,
       accessToken: session.access_token,
       state: 'authenticated',
       isOnline: session.is_online,
-    },
+      scope: session.scope || '',
+    } as any,
   })
 
   return client
@@ -40,11 +42,13 @@ export async function getShopifyRestClient(shop: string) {
 
   const client = new shopify.clients.Rest({
     session: {
+      id: `offline_${session.shop}`,
       shop: session.shop,
       accessToken: session.access_token,
       state: 'authenticated',
       isOnline: session.is_online,
-    },
+      scope: session.scope || '',
+    } as any,
   })
 
   return client
