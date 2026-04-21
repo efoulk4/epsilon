@@ -2,6 +2,7 @@
 
 import { getShopifyGraphQLClient } from '@/app/utils/shopifyClient'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import type { AuditViolation } from '@/types/audit'
 
 const genAI = process.env.GOOGLE_API_KEY
   ? new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
@@ -10,6 +11,120 @@ const genAI = process.env.GOOGLE_API_KEY
 interface ImageRecord {
   url: string
   alt?: string
+}
+
+interface ViolationNode {
+  html: string
+  target: string[]
+  failureSummary: string
+}
+
+/**
+ * AI-powered agent that analyzes violations and generates code fixes
+ * This is the main entry point for fixing any accessibility violation
+ */
+export async function fixViolationWithAI(
+  shop: string,
+  violation: {
+    id: string
+    description: string
+    help: string
+    helpUrl: string
+    node: ViolationNode
+  }
+): Promise<{
+  success: boolean
+  fixDescription?: string
+  appliedFix?: boolean
+  error?: string
+}> {
+  try {
+    if (!genAI) {
+      return {
+        success: false,
+        error: 'Gemini API key not configured',
+      }
+    }
+
+    console.log('[fixViolationWithAI] Analyzing violation:', violation.id)
+
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+    // Create a detailed prompt for the AI agent
+    const prompt = `You are an accessibility expert helping fix WCAG violations in a Shopify store.
+
+VIOLATION DETAILS:
+- Type: ${violation.id}
+- Description: ${violation.description}
+- Guidance: ${violation.help}
+- Affected HTML: ${violation.node.html}
+- CSS Selector: ${violation.node.target.join(' > ')}
+- Failure Summary: ${violation.node.failureSummary}
+
+TASK:
+Analyze this violation and provide:
+1. A clear explanation of what's wrong (2-3 sentences)
+2. The specific fix needed (be concrete and actionable)
+3. If it's a code change: the exact corrected HTML/CSS
+4. Priority level (critical/high/medium/low)
+
+Focus on solutions that can be implemented via Shopify's Admin API, theme modifications, or product updates.
+
+Format your response as JSON:
+{
+  "explanation": "Clear description of the issue",
+  "fixDescription": "What needs to be done",
+  "fixType": "html" | "css" | "attribute" | "content" | "color",
+  "correctedCode": "The fixed code if applicable",
+  "priority": "critical" | "high" | "medium" | "low",
+  "canAutoFix": true/false,
+  "shopifyAction": "Description of what to do in Shopify Admin API"
+}`
+
+    const result = await model.generateContent(prompt)
+    const response = result.response.text()
+
+    console.log('[fixViolationWithAI] AI Response:', response)
+
+    // Parse the AI response
+    let fixData
+    try {
+      // Extract JSON from response (handle markdown code blocks)
+      const jsonMatch = response.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        fixData = JSON.parse(jsonMatch[0])
+      } else {
+        throw new Error('No JSON found in response')
+      }
+    } catch (parseError) {
+      console.error('[fixViolationWithAI] Failed to parse AI response:', parseError)
+      return {
+        success: true,
+        fixDescription: response, // Return raw response if parsing fails
+        appliedFix: false,
+      }
+    }
+
+    // Check if we can auto-apply the fix
+    let applied = false
+    if (fixData.canAutoFix && fixData.fixType === 'content') {
+      // Try to apply the fix via Shopify API
+      // This would need more context about what element we're fixing
+      console.log('[fixViolationWithAI] Auto-fix not yet implemented for:', fixData.fixType)
+    }
+
+    return {
+      success: true,
+      fixDescription: `${fixData.explanation}\n\nFix: ${fixData.fixDescription}${fixData.correctedCode ? `\n\nCorrected Code:\n${fixData.correctedCode}` : ''}`,
+      appliedFix: applied,
+    }
+  } catch (error) {
+    console.error('[fixViolationWithAI] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
 }
 
 /**

@@ -6,7 +6,7 @@ import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
 import { AltTextFixModal } from './AltTextFixModal'
-import { fixContrastRatio } from '../services/remediation'
+import { fixViolationWithAI } from '../services/remediation'
 import { useSearchParams } from 'next/navigation'
 import {
   Card,
@@ -171,39 +171,39 @@ export function AuditTab() {
     }
   }
 
-  const handleFixViolation = async (violationId: string, violationType: string) => {
+  const handleFixViolation = async (
+    violation: AuditViolation,
+    nodeIndex: number
+  ) => {
     if (!shop) {
       alert('Shop information not available. Fixes only work in embedded mode.')
       return
     }
 
-    const fixKey = `${violationId}-fix`
+    const fixKey = `${violation.id}-${nodeIndex}`
     setFixingViolations((prev) => new Set(prev).add(fixKey))
 
     try {
-      if (violationType === 'color-contrast') {
-        // Example: Extract colors from violation (this would need actual parsing logic)
-        const result = await fixContrastRatio(
-          shop,
-          'theme-id-placeholder', // Would need to get actual theme ID
-          'foreground-key',
-          'background-key',
-          '#000000', // Would extract from violation
-          '#FFFFFF' // Would extract from violation
-        )
+      // Use AI agent to analyze and generate fix
+      const result = await fixViolationWithAI(shop, {
+        id: violation.id,
+        description: violation.description,
+        help: violation.help,
+        helpUrl: violation.helpUrl,
+        node: violation.nodes[nodeIndex],
+      })
 
-        if (result.success) {
-          setFixResults((prev) => {
-            const newMap = new Map(prev)
-            newMap.set(fixKey, {
-              success: true,
-              message: `Proposed compliant color: ${result.proposedColor}`,
-            })
-            return newMap
+      if (result.success) {
+        setFixResults((prev) => {
+          const newMap = new Map(prev)
+          newMap.set(fixKey, {
+            success: true,
+            message: result.fixDescription || 'Fix generated successfully',
           })
-        } else {
-          throw new Error(result.error || 'Failed to calculate compliant color')
-        }
+          return newMap
+        })
+      } else {
+        throw new Error(result.error || 'Failed to generate fix')
       }
     } catch (error) {
       setFixResults((prev) => {
@@ -427,49 +427,26 @@ export function AuditTab() {
                           }}
                         >
                           <BlockStack gap="300">
-                            {impactViolations.map((violation, index) => {
-                              const fixKey = `${violation.id}-fix`
-                              const isFixing = fixingViolations.has(fixKey)
-                              const fixResult = fixResults.get(fixKey)
-
-                              return (
+                            {impactViolations.map((violation, index) => (
                               <Card key={`${violation.id}-${index}`}>
                                 <BlockStack gap="300">
-                                  <InlineStack align="space-between" blockAlign="start">
-                                    <div style={{ flex: 1 }}>
-                                      <Text as="h5" variant="headingSm">
-                                        {violation.help}
-                                      </Text>
-                                    </div>
-                                    {/* Show Fix button for serious violations (excluding image-alt which has custom handler) */}
-                                    {isEmbedded &&
-                                     violation.impact === 'serious' &&
-                                     violation.id !== 'image-alt' &&
-                                     violation.id.includes('contrast') && (
-                                      <Button
-                                        size="slim"
-                                        loading={isFixing}
-                                        onClick={() => handleFixViolation(violation.id, 'color-contrast')}
-                                        tone="success"
-                                      >
-                                        {isFixing ? 'Analyzing...' : 'Fix'}
-                                      </Button>
-                                    )}
-                                  </InlineStack>
+                                  <Text as="h5" variant="headingSm">
+                                    {violation.help}
+                                  </Text>
                                   <Text as="p" variant="bodyMd" tone="subdued">
                                     {violation.description}
                                   </Text>
-                                  {fixResult && (
-                                    <Banner tone={fixResult.success ? 'success' : 'critical'}>
-                                      {fixResult.message}
-                                    </Banner>
-                                  )}
                                   <Text as="p" variant="bodyMd">
                                     <strong>Affected Elements:</strong>{' '}
                                     {violation.nodes.length}
                                   </Text>
 
-                                  {violation.nodes.slice(0, 3).map((node, nodeIndex) => (
+                                  {violation.nodes.slice(0, 3).map((node, nodeIndex) => {
+                                    const fixKey = `${violation.id}-${nodeIndex}`
+                                    const isFixing = fixingViolations.has(fixKey)
+                                    const fixResult = fixResults.get(fixKey)
+
+                                    return (
                                     <Box
                                       key={nodeIndex}
                                       background="bg-surface-secondary"
@@ -488,17 +465,30 @@ export function AuditTab() {
                                         <Text as="p" variant="bodySm" tone="subdued">
                                           Selector: {node.target.join(' > ')}
                                         </Text>
-                                        {violation.id === 'image-alt' && extractImageUrl(node.html) && (
+
+                                        {/* Show AI-powered fix button for all violations in embedded mode */}
+                                        {isEmbedded && (
                                           <Button
                                             size="slim"
-                                            onClick={() => handleFixImage(node.html)}
+                                            loading={isFixing}
+                                            onClick={() => handleFixViolation(violation, nodeIndex)}
+                                            tone="success"
                                           >
-                                            Fix Now with AI
+                                            {isFixing ? 'Analyzing with AI...' : 'Fix with AI'}
                                           </Button>
+                                        )}
+
+                                        {/* Show fix result */}
+                                        {fixResult && (
+                                          <Banner tone={fixResult.success ? 'success' : 'critical'}>
+                                            <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                                              {fixResult.message}
+                                            </div>
+                                          </Banner>
                                         )}
                                       </BlockStack>
                                     </Box>
-                                  ))}
+                                  )})}
 
                                   {violation.nodes.length > 3 && (
                                     <Text as="p" variant="bodyMd" tone="subdued">
@@ -515,7 +505,7 @@ export function AuditTab() {
                                   </Link>
                                 </BlockStack>
                               </Card>
-                            )})}
+                            ))}
                           </BlockStack>
                         </Collapsible>
                       </BlockStack>
