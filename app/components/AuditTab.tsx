@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { runAccessibilityAudit, runAccessibilityAuditForShop, saveAuditToDatabase } from '../actions/audit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
@@ -46,7 +46,8 @@ export function AuditTab() {
     html: string
   } | null>(null)
   const [fixingViolations, setFixingViolations] = useState<Set<string>>(new Set())
-  const [fixResults, setFixResults] = useState<Map<string, { success: boolean; message: string }>>(new Map())
+  const [fixResults, setFixResults] = useState<Map<string, { success: boolean; message: string; cssCode?: string; appliedFix?: boolean }>>(new Map())
+  const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
 
   // Detect if running in Shopify embedded context
   useEffect(() => {
@@ -171,6 +172,34 @@ export function AuditTab() {
     }
   }
 
+  const handleCopyCSS = async (fixKey: string, cssCode: string) => {
+    try {
+      await navigator.clipboard.writeText(cssCode)
+      setCopiedKeys((prev) => new Set(prev).add(fixKey))
+      setTimeout(() => {
+        setCopiedKeys((prev) => {
+          const newSet = new Set(prev)
+          newSet.delete(fixKey)
+          return newSet
+        })
+      }, 2000)
+    } catch (error) {
+      alert('Failed to copy CSS. Please select and copy manually.')
+    }
+  }
+
+  const handleDownloadCSS = (fixKey: string, cssCode: string, violationId: string) => {
+    const blob = new Blob([cssCode], { type: 'text/css' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `accessibility-fix-${violationId}-${Date.now()}.css`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
   const handleFixViolation = async (
     violation: AuditViolation,
     nodeIndex: number
@@ -199,6 +228,8 @@ export function AuditTab() {
           newMap.set(fixKey, {
             success: true,
             message: result.fixDescription || 'Fix generated successfully',
+            cssCode: result.cssCode,
+            appliedFix: result.appliedFix,
           })
           return newMap
         })
@@ -480,10 +511,131 @@ export function AuditTab() {
 
                                         {/* Show fix result */}
                                         {fixResult && (
-                                          <Banner tone={fixResult.success ? 'success' : 'critical'}>
-                                            <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
-                                              {fixResult.message}
-                                            </div>
+                                          <Banner
+                                            tone={
+                                              fixResult.success && fixResult.appliedFix
+                                                ? 'success'
+                                                : fixResult.success
+                                                  ? 'info'
+                                                  : 'critical'
+                                            }
+                                          >
+                                            <BlockStack gap="300">
+                                              <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                                                {fixResult.message}
+                                              </div>
+
+                                              {/* Show CSS code if available (for manual application) */}
+                                              {!fixResult.appliedFix && fixResult.cssCode && (
+                                                <BlockStack gap="300">
+                                                  <Box
+                                                    background="bg-surface-warning-subdued"
+                                                    padding="300"
+                                                    borderRadius="200"
+                                                  >
+                                                    <BlockStack gap="200">
+                                                      <Text as="p" variant="bodyMd" fontWeight="semibold">
+                                                        📋 Manual CSS Fix Required
+                                                      </Text>
+                                                      <Text as="p" variant="bodySm">
+                                                        This fix requires theme-level changes. Follow the steps below to apply it to your store.
+                                                      </Text>
+                                                    </BlockStack>
+                                                  </Box>
+
+                                                  <BlockStack gap="200">
+                                                    <Text as="p" variant="bodyMd" fontWeight="semibold">
+                                                      Generated CSS:
+                                                    </Text>
+                                                    <Box
+                                                      background="bg-surface"
+                                                      padding="300"
+                                                      borderRadius="200"
+                                                    >
+                                                      <code
+                                                        style={{
+                                                          display: 'block',
+                                                          fontSize: '11px',
+                                                          fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                                                          whiteSpace: 'pre-wrap',
+                                                          wordBreak: 'break-word',
+                                                          lineHeight: '1.5',
+                                                          color: '#1a1a1a',
+                                                        }}
+                                                      >
+                                                        {fixResult.cssCode}
+                                                      </code>
+                                                    </Box>
+
+                                                    <InlineStack gap="200">
+                                                      <Button
+                                                        size="medium"
+                                                        tone={copiedKeys.has(fixKey) ? 'success' : undefined}
+                                                        onClick={() => handleCopyCSS(fixKey, fixResult.cssCode!)}
+                                                      >
+                                                        {copiedKeys.has(fixKey) ? '✓ Copied!' : 'Copy CSS'}
+                                                      </Button>
+                                                      <Button
+                                                        size="medium"
+                                                        variant="secondary"
+                                                        onClick={() => handleDownloadCSS(fixKey, fixResult.cssCode!, violation.id)}
+                                                      >
+                                                        Download CSS File
+                                                      </Button>
+                                                    </InlineStack>
+                                                  </BlockStack>
+
+                                                  <Box
+                                                    background="bg-surface-secondary"
+                                                    padding="300"
+                                                    borderRadius="200"
+                                                  >
+                                                    <BlockStack gap="200">
+                                                      <Text as="p" variant="bodyMd" fontWeight="semibold">
+                                                        How to apply this fix:
+                                                      </Text>
+                                                      <ol style={{ paddingLeft: '20px', margin: 0 }}>
+                                                        <li>
+                                                          <Text as="span" variant="bodySm">
+                                                            Go to <strong>Online Store → Themes</strong> in your Shopify admin
+                                                          </Text>
+                                                        </li>
+                                                        <li>
+                                                          <Text as="span" variant="bodySm">
+                                                            Click <strong>Customize</strong> on your active theme
+                                                          </Text>
+                                                        </li>
+                                                        <li>
+                                                          <Text as="span" variant="bodySm">
+                                                            Click <strong>Theme settings → Custom CSS</strong> (or edit theme.liquid)
+                                                          </Text>
+                                                        </li>
+                                                        <li>
+                                                          <Text as="span" variant="bodySm">
+                                                            Paste the CSS code above
+                                                          </Text>
+                                                        </li>
+                                                        <li>
+                                                          <Text as="span" variant="bodySm">
+                                                            Click <strong>Save</strong>
+                                                          </Text>
+                                                        </li>
+                                                      </ol>
+                                                      <Text as="p" variant="bodySm" tone="subdued">
+                                                        💡 Tip: We don't auto-inject CSS for security reasons. This keeps your store safe from potential code injection vulnerabilities.
+                                                      </Text>
+                                                    </BlockStack>
+                                                  </Box>
+                                                </BlockStack>
+                                              )}
+
+                                              {/* Show success message if fix was applied automatically */}
+                                              {fixResult.appliedFix && (
+                                                <Text as="p" variant="bodyMd" fontWeight="semibold" tone="success">
+                                                  🎉 No manual action needed - the fix has been applied to your store!
+                                                </Text>
+                                              )}
+                                            </BlockStack>
                                           </Banner>
                                         )}
                                       </BlockStack>

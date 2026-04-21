@@ -20,6 +20,275 @@ interface ViolationNode {
 }
 
 /**
+ * Generate CSS override fix that can be injected into the theme
+ * This creates a CSS rule that targets the specific element and applies the fix
+ */
+function generateCSSFix(
+  node: ViolationNode,
+  correctedCode: string,
+  fixData: any
+): string | null {
+  // Generate a CSS selector from the target path
+  const cssSelector = node.target.join(' ')
+
+  // Extract style properties from corrected code if it's an inline style fix
+  if (correctedCode.includes('style=')) {
+    const styleMatch = correctedCode.match(/style="([^"]+)"/)
+    if (styleMatch) {
+      const styles = styleMatch[1]
+      return `/* Accessibility Fix: ${fixData.explanation} */\n${cssSelector} {\n  ${styles.replace(/;/g, ';\n  ')}\n}`
+    }
+  }
+
+  // For color contrast fixes, extract the color
+  if (fixData.fixType === 'color' && correctedCode.includes('color:')) {
+    const colorMatch = correctedCode.match(/color:\s*([^;'"]+)/)
+    if (colorMatch) {
+      return `/* Accessibility Fix: ${fixData.explanation} */\n${cssSelector} {\n  color: ${colorMatch[1]};\n}`
+    }
+  }
+
+  return null
+}
+
+/**
+ * Extract product ID from HTML or selector
+ */
+function extractProductId(html: string, selector: string[]): string | null {
+  // Try to find data-product-id attribute
+  const dataIdMatch = html.match(/data-product-id="?(\d+)"?/)
+  if (dataIdMatch) return dataIdMatch[1]
+
+  // Try to find in selector path
+  const selectorStr = selector.join(' ')
+  const selectorIdMatch = selectorStr.match(/product-(\d+)/)
+  if (selectorIdMatch) return selectorIdMatch[1]
+
+  return null
+}
+
+/**
+ * Extract page ID from HTML or selector
+ */
+function extractPageId(html: string, selector: string[]): string | null {
+  const dataIdMatch = html.match(/data-page-id="?(\d+)"?/)
+  if (dataIdMatch) return dataIdMatch[1]
+
+  const selectorStr = selector.join(' ')
+  const selectorIdMatch = selectorStr.match(/page-(\d+)/)
+  if (selectorIdMatch) return selectorIdMatch[1]
+
+  return null
+}
+
+/**
+ * Apply fix to product content via Shopify GraphQL API
+ */
+async function applyProductContentFix(
+  shop: string,
+  productId: string,
+  correctedHtml: string,
+  field: 'title' | 'descriptionHtml' = 'descriptionHtml'
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const client = await getShopifyGraphQLClient(shop)
+
+    const mutation = `
+      mutation productUpdate($input: ProductInput!) {
+        productUpdate(input: $input) {
+          product {
+            id
+            ${field}
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `
+
+    const variables = {
+      input: {
+        id: `gid://shopify/Product/${productId}`,
+        [field]: correctedHtml,
+      },
+    }
+
+    const response = await client.query({
+      data: {
+        query: mutation,
+        variables,
+      },
+    })
+
+    const data = response.body as any
+
+    if (data?.data?.productUpdate?.userErrors?.length > 0) {
+      const errors = data.data.productUpdate.userErrors
+      return {
+        success: false,
+        error: errors[0].message,
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('[applyProductContentFix] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update product',
+    }
+  }
+}
+
+/**
+ * Apply fix to page content via Shopify GraphQL API
+ */
+async function applyPageContentFix(
+  shop: string,
+  pageId: string,
+  correctedHtml: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const client = await getShopifyGraphQLClient(shop)
+
+    const mutation = `
+      mutation pageUpdate($id: ID!, $page: PageInput!) {
+        pageUpdate(id: $id, page: $page) {
+          page {
+            id
+            body
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `
+
+    const variables = {
+      id: `gid://shopify/OnlinePage/${pageId}`,
+      page: {
+        body: correctedHtml,
+      },
+    }
+
+    const response = await client.query({
+      data: {
+        query: mutation,
+        variables,
+      },
+    })
+
+    const data = response.body as any
+
+    if (data?.data?.pageUpdate?.userErrors?.length > 0) {
+      const errors = data.data.pageUpdate.userErrors
+      return {
+        success: false,
+        error: errors[0].message,
+      }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('[applyPageContentFix] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to update page',
+    }
+  }
+}
+
+/**
+ * Apply a code fix by updating content via Shopify APIs
+ * This intelligently routes to the right API based on the fix data
+ */
+async function applyCodeFix(
+  shop: string,
+  node: ViolationNode,
+  fixData: any
+): Promise<{ success: boolean; error?: string; appliedFix?: boolean }> {
+  try {
+    console.log('[applyCodeFix] Attempting to apply fix')
+    console.log('  Location:', fixData.location)
+    console.log('  Apply method:', fixData.applyMethod)
+
+    // If the fix can be applied via API
+    if (fixData.applyMethod === 'api' && fixData.correctedCode) {
+      if (fixData.location === 'product') {
+        // Extract product ID
+        const productId =
+          fixData.shopifyResourceId ||
+          extractProductId(node.html, node.target)
+
+        if (!productId) {
+          return {
+            success: false,
+            error: 'Could not identify product ID from violation',
+          }
+        }
+
+        // Apply product fix
+        const result = await applyProductContentFix(
+          shop,
+          productId,
+          fixData.correctedCode,
+          fixData.apiDetails?.field || 'descriptionHtml'
+        )
+
+        if (result.success) {
+          return {
+            success: true,
+            appliedFix: true,
+          }
+        }
+
+        return result
+      } else if (fixData.location === 'page') {
+        // Extract page ID
+        const pageId =
+          fixData.shopifyResourceId || extractPageId(node.html, node.target)
+
+        if (!pageId) {
+          return {
+            success: false,
+            error: 'Could not identify page ID from violation',
+          }
+        }
+
+        // Apply page fix
+        const result = await applyPageContentFix(shop, pageId, fixData.correctedCode)
+
+        if (result.success) {
+          return {
+            success: true,
+            appliedFix: true,
+          }
+        }
+
+        return result
+      }
+    }
+
+    // If we can't apply via API, note that it needs Theme App Extension or manual fix
+    return {
+      success: false,
+      error:
+        'This fix requires a Theme App Extension to apply automatically. CSS has been generated for manual application.',
+    }
+  } catch (error) {
+    console.error('[applyCodeFix] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to apply fix',
+    }
+  }
+}
+
+/**
  * AI-powered agent that analyzes violations and generates code fixes
  * This is the main entry point for fixing any accessibility violation
  */
@@ -36,6 +305,7 @@ export async function fixViolationWithAI(
   success: boolean
   fixDescription?: string
   appliedFix?: boolean
+  cssCode?: string
   error?: string
 }> {
   try {
@@ -67,8 +337,15 @@ Analyze this violation and provide:
 2. The specific fix needed (be concrete and actionable)
 3. If it's a code change: the exact corrected HTML/CSS
 4. Priority level (critical/high/medium/low)
+5. WHERE the violation exists (determine from HTML/selector)
 
-Focus on solutions that can be implemented via Shopify's Admin API, theme modifications, or product updates.
+IMPORTANT - Determine the violation location:
+- If HTML contains product-related elements (product cards, titles, descriptions, images): location = "product"
+- If HTML contains page content markers or static page elements: location = "page"
+- If HTML is from theme template (header, footer, navigation, layout): location = "theme"
+- Extract any product IDs, page IDs from the HTML/selector if present
+
+Focus on solutions that can be implemented via Shopify's Admin API or Theme App Extensions.
 
 Format your response as JSON:
 {
@@ -78,7 +355,13 @@ Format your response as JSON:
   "correctedCode": "The fixed code if applicable",
   "priority": "critical" | "high" | "medium" | "low",
   "canAutoFix": true/false,
-  "shopifyAction": "Description of what to do in Shopify Admin API"
+  "location": "product" | "page" | "theme",
+  "shopifyResourceId": "Extract product/page ID if found in HTML, otherwise null",
+  "applyMethod": "api" | "theme-extension" | "manual",
+  "apiDetails": {
+    "mutation": "productUpdate | pageUpdate | fileUpdate | etc",
+    "field": "descriptionHtml | body | alt | etc"
+  }
 }`
 
     const result = await model.generateContent(prompt)
@@ -105,18 +388,32 @@ Format your response as JSON:
       }
     }
 
-    // Check if we can auto-apply the fix
-    let applied = false
-    if (fixData.canAutoFix && fixData.fixType === 'content') {
-      // Try to apply the fix via Shopify API
-      // This would need more context about what element we're fixing
-      console.log('[fixViolationWithAI] Auto-fix not yet implemented for:', fixData.fixType)
+    // Try to apply the fix automatically
+    let appliedFix = false
+    let applyError: string | undefined
+
+    if (fixData.canAutoFix && fixData.correctedCode) {
+      const applyResult = await applyCodeFix(shop, violation.node, fixData)
+
+      if (applyResult.success && applyResult.appliedFix) {
+        appliedFix = true
+        console.log('[fixViolationWithAI] Fix applied successfully via API')
+      } else {
+        applyError = applyResult.error
+        console.log('[fixViolationWithAI] Could not apply via API:', applyError)
+      }
     }
+
+    // Generate CSS fix if applicable (for theme-level fixes)
+    const cssCode = !appliedFix ? generateCSSFix(violation.node, fixData.correctedCode || '', fixData) : null
 
     return {
       success: true,
-      fixDescription: `${fixData.explanation}\n\nFix: ${fixData.fixDescription}${fixData.correctedCode ? `\n\nCorrected Code:\n${fixData.correctedCode}` : ''}`,
-      appliedFix: applied,
+      fixDescription: appliedFix
+        ? `✅ Fix Applied Successfully!\n\n${fixData.explanation}\n\nThe accessibility issue has been automatically corrected in your Shopify ${fixData.location || 'content'}.`
+        : `${fixData.explanation}\n\nFix: ${fixData.fixDescription}${fixData.correctedCode ? `\n\nCorrected Code:\n${fixData.correctedCode}` : ''}${applyError ? `\n\nNote: ${applyError}` : ''}`,
+      appliedFix,
+      cssCode: cssCode || undefined,
     }
   } catch (error) {
     console.error('[fixViolationWithAI] Error:', error)
