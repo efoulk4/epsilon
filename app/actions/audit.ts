@@ -3,7 +3,7 @@
 import { chromium } from 'playwright-core'
 import chromiumPkg from '@sparticuz/chromium'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
-import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase'
+import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase'
 import { calculateHealthScore } from '@/app/utils/healthScore'
 import { getShopOnlineStoreUrl } from '@/app/utils/shopifyClient'
 
@@ -181,6 +181,7 @@ export async function saveAuditToDatabase(
 
   try {
     const healthScore = calculateHealthScore(auditResult)
+    const supabaseAdmin = getSupabaseAdmin()
 
     const { data, error } = await supabaseAdmin
       .from('audits')
@@ -222,6 +223,8 @@ export async function getAuditHistory(
   try {
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
+
+    const supabaseAdmin = getSupabaseAdmin()
 
     const { data, error } = await supabaseAdmin
       .from('audits')

@@ -18,14 +18,29 @@ export const supabase = isSupabaseConfigured
 
 // Server-side Supabase client (uses service role key, bypasses RLS)
 // Use this for server actions and API routes
-export const supabaseAdmin = (supabaseUrl && supabaseServiceKey)
-  ? createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
+// Create this as a function to ensure env vars are loaded at runtime
+export function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!url || !serviceKey) {
+    console.error('[getSupabaseAdmin] Missing credentials:', {
+      hasUrl: !!url,
+      hasServiceKey: !!serviceKey,
     })
-  : createClient('https://placeholder.supabase.co', 'placeholder-key')
+    throw new Error('Supabase admin client credentials not configured')
+  }
+
+  return createClient(url, serviceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
+
+// Keep the old export for backwards compatibility (but lazy-load it)
+export const supabaseAdmin = getSupabaseAdmin()
 
 // Database types
 export type Database = {
