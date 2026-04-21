@@ -13,11 +13,20 @@ const shopify = shopifyApi({
 })
 
 export async function getShopifyGraphQLClient(shop: string) {
+  console.log('[getShopifyGraphQLClient] Getting session for shop:', shop)
   const session = await getShopifySession(shop)
 
   if (!session) {
+    console.error('[getShopifyGraphQLClient] No session found for shop:', shop)
     throw new Error('No valid session found for shop')
   }
+
+  console.log('[getShopifyGraphQLClient] Session found:', {
+    shop: session.shop,
+    has_access_token: !!session.access_token,
+    scope: session.scope,
+    is_online: session.is_online
+  })
 
   const client = new shopify.clients.Graphql({
     session: {
@@ -57,7 +66,10 @@ export async function getShopifyRestClient(shop: string) {
 // Helper function to get shop's online store URL
 export async function getShopOnlineStoreUrl(shop: string): Promise<string | null> {
   try {
+    console.log('[getShopOnlineStoreUrl] Attempting to get URL for shop:', shop)
+
     const client = await getShopifyGraphQLClient(shop)
+    console.log('[getShopOnlineStoreUrl] GraphQL client created successfully')
 
     const response = await client.query({
       data: {
@@ -71,11 +83,19 @@ export async function getShopOnlineStoreUrl(shop: string): Promise<string | null
       },
     })
 
+    console.log('[getShopOnlineStoreUrl] GraphQL response:', JSON.stringify(response.body))
     const data = response.body as any
 
-    return data?.data?.shop?.primaryDomain?.url || null
+    const url = data?.data?.shop?.primaryDomain?.url || null
+    console.log('[getShopOnlineStoreUrl] Extracted URL:', url)
+
+    return url
   } catch (error) {
-    console.error('Error fetching shop online store URL:', error)
+    console.error('[getShopOnlineStoreUrl] Error fetching shop online store URL:', error)
+    if (error instanceof Error) {
+      console.error('[getShopOnlineStoreUrl] Error message:', error.message)
+      console.error('[getShopOnlineStoreUrl] Error stack:', error.stack)
+    }
     return null
   }
 }
