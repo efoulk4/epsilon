@@ -13,11 +13,24 @@ export interface ShopifySession {
 
 export async function getShopifySession(shop: string): Promise<ShopifySession | null> {
   if (!supabaseUrl || !supabaseServiceKey) {
-    console.error('Supabase not configured')
+    console.error('[getShopifySession] Supabase not configured:', {
+      hasUrl: !!supabaseUrl,
+      hasServiceKey: !!supabaseServiceKey,
+    })
     return null
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  console.log('[getShopifySession] Creating Supabase client with service role key')
+  console.log('[getShopifySession] Service key starts with:', supabaseServiceKey.substring(0, 15))
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+
+  console.log('[getShopifySession] Querying for shop:', shop)
 
   const { data, error } = await supabase
     .from('shopify_sessions')
@@ -26,10 +39,11 @@ export async function getShopifySession(shop: string): Promise<ShopifySession | 
     .single()
 
   if (error) {
-    console.error('Error fetching Shopify session:', error)
+    console.error('[getShopifySession] Error fetching Shopify session:', error)
     return null
   }
 
+  console.log('[getShopifySession] Session retrieved successfully for shop:', shop)
   return data as ShopifySession
 }
 
