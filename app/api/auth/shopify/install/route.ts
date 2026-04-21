@@ -35,8 +35,11 @@ export async function GET(request: NextRequest) {
       isOnline: false, // Offline access for server-side API calls
     })
 
-    // Redirect to Shopify OAuth
-    return NextResponse.redirect(authUrl)
+    // Redirect to Shopify OAuth with ngrok bypass header
+    const response = NextResponse.redirect(authUrl)
+    response.headers.set('ngrok-skip-browser-warning', 'true')
+
+    return response
   } catch (error) {
     console.error('Error starting OAuth:', error)
     return NextResponse.json(

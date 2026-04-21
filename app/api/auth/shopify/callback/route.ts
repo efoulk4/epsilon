@@ -59,7 +59,10 @@ export async function GET(request: NextRequest) {
       redirectUrl.searchParams.set('host', host)
     }
 
-    return NextResponse.redirect(redirectUrl)
+    const response = NextResponse.redirect(redirectUrl)
+    response.headers.set('ngrok-skip-browser-warning', 'true')
+
+    return response
   } catch (error) {
     console.error('OAuth callback error:', error)
     return NextResponse.json(
