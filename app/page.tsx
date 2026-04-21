@@ -1,23 +1,50 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Page, BlockStack, Tabs } from '@shopify/polaris'
 import { AuditTab } from './components/AuditTab'
 import { HistoryTab } from './components/HistoryTab'
 
 export default function Dashboard() {
+  const searchParams = useSearchParams()
   const [selectedTabIndex, setSelectedTabIndex] = useState(0)
+  const [isEmbedded, setIsEmbedded] = useState(false)
+  const [shop, setShop] = useState<string | null>(null)
 
-  const tabs = [
-    {
-      id: 'audit',
-      content: 'Run Audit',
-    },
-    {
-      id: 'history',
-      content: 'History',
-    },
-  ]
+  // Detect if running in Shopify embedded context
+  useEffect(() => {
+    const shopParam = searchParams.get('shop')
+    if (shopParam) {
+      setShop(shopParam)
+      setIsEmbedded(true)
+    } else if (typeof window !== 'undefined') {
+      const storedShop = sessionStorage.getItem('shopify_shop')
+      if (storedShop) {
+        setShop(storedShop)
+        setIsEmbedded(true)
+      }
+    }
+  }, [searchParams])
+
+  // Only show History tab when embedded
+  const tabs = isEmbedded
+    ? [
+        {
+          id: 'audit',
+          content: 'Run Audit',
+        },
+        {
+          id: 'history',
+          content: 'History',
+        },
+      ]
+    : [
+        {
+          id: 'audit',
+          content: 'Run Audit',
+        },
+      ]
 
   return (
     <Page
@@ -26,7 +53,7 @@ export default function Dashboard() {
     >
       <BlockStack gap="500">
         <Tabs tabs={tabs} selected={selectedTabIndex} onSelect={setSelectedTabIndex}>
-          {selectedTabIndex === 0 ? <AuditTab /> : <HistoryTab />}
+          {selectedTabIndex === 0 ? <AuditTab /> : <HistoryTab shop={shop} />}
         </Tabs>
       </BlockStack>
     </Page>

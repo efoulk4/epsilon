@@ -5,47 +5,55 @@ import {
   Card,
   BlockStack,
   Text,
-  TextField,
-  Button,
   Banner,
-  InlineStack,
+  Spinner,
 } from '@shopify/polaris'
-import { SearchIcon } from '@shopify/polaris-icons'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { getAuditHistory } from '../actions/audit'
 import { calculateHealthScore } from '../utils/healthScore'
 import type { AuditResult } from '@/types/audit'
 import { isSupabaseConfigured } from '@/lib/supabase'
 
-export function HistoryTab() {
-  const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
+interface HistoryTabProps {
+  shop: string | null
+}
+
+export function HistoryTab({ shop }: HistoryTabProps) {
+  const [loading, setLoading] = useState(true)
   const [history, setHistory] = useState<AuditResult[]>([])
   const [error, setError] = useState<string | null>(null)
 
-  const handleFetchHistory = async () => {
-    if (!url.trim()) {
-      setError('Please enter a URL')
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
-    try {
-      const results = await getAuditHistory(url, 30)
-      setHistory(results)
-
-      if (results.length === 0) {
-        setError('No audit history found for this URL in the last 30 days')
+  // Auto-load history for the shop
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!shop) {
+        setError('Shop information not available')
+        setLoading(false)
+        return
       }
-    } catch (err) {
-      setError('Failed to fetch audit history')
-      console.error(err)
-    } finally {
-      setLoading(false)
+
+      setLoading(true)
+      setError(null)
+
+      try {
+        // Construct the shop URL
+        const shopUrl = `https://${shop}`
+        const results = await getAuditHistory(shopUrl, 30)
+        setHistory(results)
+
+        if (results.length === 0) {
+          setError('No audit history found for your store yet. Run an audit to get started!')
+        }
+      } catch (err) {
+        setError('Failed to load audit history')
+        console.error(err)
+      } finally {
+        setLoading(false)
+      }
     }
-  }
+
+    loadHistory()
+  }, [shop])
 
   // Prepare chart data
   const chartData = history.map((audit) => ({
@@ -75,65 +83,19 @@ export function HistoryTab() {
 
   return (
     <BlockStack gap="500">
-      {!isSupabaseConfigured && (
-        <Banner tone="warning" title="Supabase Not Configured">
-          <BlockStack gap="200">
-            <Text as="p" variant="bodyMd">
-              To use the History feature, you need to set up Supabase. Follow these steps:
-            </Text>
-            <Text as="p" variant="bodyMd">
-              1. Create a Supabase project at supabase.com
-            </Text>
-            <Text as="p" variant="bodyMd">
-              2. Run the database migration from supabase/migrations/001_create_audits_table.sql
-            </Text>
-            <Text as="p" variant="bodyMd">
-              3. Update .env.local with your Supabase URL and anon key
-            </Text>
-            <Text as="p" variant="bodyMd">
-              4. Restart the dev server
-            </Text>
-            <Text as="p" variant="bodyMd">
-              See SUPABASE_SETUP.md for detailed instructions.
+      {loading && (
+        <Card>
+          <BlockStack gap="400" inlineAlign="center">
+            <Spinner size="large" />
+            <Text as="p" variant="bodyMd" tone="subdued">
+              Loading audit history for your store...
             </Text>
           </BlockStack>
-        </Banner>
+        </Card>
       )}
 
-      <Card>
-        <BlockStack gap="400">
-          <Text as="h2" variant="headingMd">
-            View Audit History
-          </Text>
-          <InlineStack gap="300" align="end">
-            <div style={{ flex: 1 }}>
-              <TextField
-                label=""
-                type="url"
-                value={url}
-                onChange={setUrl}
-                placeholder="https://example.com"
-                disabled={loading}
-                autoComplete="off"
-              />
-            </div>
-            <Button
-              variant="primary"
-              onClick={handleFetchHistory}
-              loading={loading}
-              icon={SearchIcon}
-            >
-              View History
-            </Button>
-          </InlineStack>
-          <Text as="p" variant="bodyMd" tone="subdued">
-            View the health score trend for any URL over the last 30 days
-          </Text>
-        </BlockStack>
-      </Card>
-
       {error && (
-        <Banner tone="warning">
+        <Banner tone="info">
           <p>{error}</p>
         </Banner>
       )}
@@ -281,11 +243,6 @@ export function HistoryTab() {
         </BlockStack>
       )}
 
-      {!error && history.length === 0 && !loading && (
-        <Banner tone="info" title="No Data Yet">
-          <p>Enter a URL above to view its accessibility audit history over the last 30 days.</p>
-        </Banner>
-      )}
     </BlockStack>
   )
 }
