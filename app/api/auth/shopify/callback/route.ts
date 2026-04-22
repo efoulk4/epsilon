@@ -19,6 +19,42 @@ const shopify = shopifyApi({
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+const APP_URL = process.env.SHOPIFY_APP_URL!
+
+/**
+ * Register mandatory Shopify webhooks for this shop via the REST Admin API.
+ * Called after every OAuth install/re-install. Shopify deduplicates by topic+address,
+ * so registering an already-registered webhook is safe.
+ */
+async function registerWebhooks(shop: string, accessToken: string): Promise<void> {
+  const webhooks = [
+    { topic: 'app/uninstalled',        address: `${APP_URL}/api/webhooks/shopify/app-uninstalled` },
+    { topic: 'customers/data_request', address: `${APP_URL}/api/webhooks/shopify/customers-data-request` },
+    { topic: 'customers/redact',       address: `${APP_URL}/api/webhooks/shopify/customers-redact` },
+    { topic: 'shop/redact',            address: `${APP_URL}/api/webhooks/shopify/shop-redact` },
+  ]
+
+  for (const webhook of webhooks) {
+    try {
+      const res = await fetch(`https://${shop}/admin/api/2024-10/webhooks.json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ webhook: { topic: webhook.topic, address: webhook.address, format: 'json' } }),
+      })
+
+      if (!res.ok && res.status !== 422) {
+        // 422 = webhook already exists — not an error
+        console.error(`[registerWebhooks] Failed to register ${webhook.topic}: ${res.status}`)
+      }
+    } catch (err) {
+      console.error(`[registerWebhooks] Error registering ${webhook.topic}:`, err instanceof Error ? err.message : err)
+    }
+  }
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const shop = searchParams.get('shop')
@@ -110,6 +146,9 @@ export async function GET(request: NextRequest) {
     } else {
       console.error('[OAuth Callback] Supabase credentials missing')
     }
+
+    // Register mandatory Shopify webhooks (idempotent — safe to call on every install/re-install)
+    await registerWebhooks(session.shop, session.accessToken!)
 
     // SECURITY: Use verified session shop for redirect, not query params
     // This prevents attacker-controlled values from influencing post-auth state
