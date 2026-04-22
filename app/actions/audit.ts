@@ -48,7 +48,14 @@ export async function runAccessibilityAuditForShop(): Promise<AuditResult | Audi
   }
 }
 
-export async function runAccessibilityAudit(
+/**
+ * SECURITY CRITICAL: Internal-only function - NOT exported to client
+ * This function launches expensive Chromium browser instances
+ * ONLY callable from verified server-side code paths
+ *
+ * Arbitrary URL auditing is BLOCKED - only trusted shop audits allowed
+ */
+async function runAccessibilityAudit(
   url: string,
   shop?: string
 ): Promise<AuditResult | AuditError> {

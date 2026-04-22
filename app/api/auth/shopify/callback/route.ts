@@ -3,6 +3,7 @@ import { shopifyApi, ApiVersion, Session } from '@shopify/shopify-api'
 import '@shopify/shopify-api/adapters/node'
 import { createClient } from '@supabase/supabase-js'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
+import { encrypt } from '@/app/utils/encryption'
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY!,
@@ -79,9 +80,20 @@ export async function GET(request: NextRequest) {
         }
       })
 
+      // SECURITY: Encrypt access token before storing
+      if (!session.accessToken) {
+        console.error('[OAuth Callback] Missing access token in session')
+        return NextResponse.json(
+          { error: 'OAuth flow incomplete - missing access token' },
+          { status: 500 }
+        )
+      }
+
+      const encryptedToken = encrypt(session.accessToken)
+
       const { data, error } = await supabase.from('shopify_sessions').upsert({
         shop: session.shop,
-        access_token: session.accessToken,
+        access_token: encryptedToken, // Store encrypted, not plaintext
         scope: session.scope,
         expires_at: session.expires ? new Date(session.expires).toISOString() : null,
         is_online: session.isOnline,

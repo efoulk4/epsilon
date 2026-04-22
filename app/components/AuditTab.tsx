@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { runAccessibilityAudit, runAccessibilityAuditForShop } from '../actions/audit'
+import { runAccessibilityAuditForShop } from '../actions/audit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
@@ -10,7 +10,6 @@ import { fixViolationWithAI } from '../services/remediation'
 import { useSearchParams } from 'next/navigation'
 import {
   Card,
-  TextField,
   Button,
   Banner,
   Text,
@@ -22,11 +21,10 @@ import {
   Box,
   InlineGrid,
 } from '@shopify/polaris'
-import { SearchIcon, StoreIcon } from '@shopify/polaris-icons'
+import { StoreIcon } from '@shopify/polaris-icons'
 
 export function AuditTab() {
   const searchParams = useSearchParams()
-  const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -100,33 +98,6 @@ export function AuditTab() {
     }
   }
 
-  const handleAudit = async () => {
-    if (!url.trim()) {
-      setError('Please enter a valid URL')
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-    setResult(null)
-
-    try {
-      const auditResult = await runAccessibilityAudit(url)
-
-      if ('error' in auditResult) {
-        setError(auditResult.details || auditResult.error)
-      } else {
-        setResult(auditResult)
-        // Note: Manual URL audits are not saved to database
-        // Only Shopify store audits (via handleAuditMyStore) are persisted
-      }
-    } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const getImpactBadge = (impact: ImpactLevel): 'critical' | 'warning' | 'attention' | 'info' => {
     switch (impact) {
@@ -292,39 +263,6 @@ export function AuditTab() {
         </Card>
       )}
 
-      {/* Manual URL Audit Card */}
-      <Card>
-        <BlockStack gap="400">
-          <Text as="h2" variant="headingMd">
-            {isEmbedded ? 'Audit Custom URL' : 'Run New Audit'}
-          </Text>
-          <InlineStack gap="300" align="end">
-            <div style={{ flex: 1 }}>
-              <TextField
-                label=""
-                type="url"
-                value={url}
-                onChange={setUrl}
-                placeholder="https://example.com"
-                disabled={loading}
-                autoComplete="off"
-              />
-            </div>
-            <Button
-              variant={isEmbedded ? 'secondary' : 'primary'}
-              onClick={handleAudit}
-              loading={loading}
-              icon={SearchIcon}
-            >
-              Run Audit
-            </Button>
-          </InlineStack>
-          <Text as="p" variant="bodyMd" tone="subdued">
-            Enter any publicly accessible URL to perform a WCAG 2.1 Level A/AA
-            accessibility audit
-          </Text>
-        </BlockStack>
-      </Card>
 
       {/* Error Display */}
       {error && (

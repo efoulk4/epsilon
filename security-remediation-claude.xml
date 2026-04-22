@@ -1,191 +1,114 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<epsilonSecurityReview generatedAt="2026-04-22" scope="current-worktree">
-  <summary>
-    <project>Epsilon</project>
-    <objective>Fix the highest-risk security weaknesses in authentication, token storage, SSRF handling, tenant isolation, and abuse controls.</objective>
-    <priorityOrder>
-      <severity>critical</severity>
-      <severity>high</severity>
-      <severity>medium</severity>
-      <severity>low</severity>
-    </priorityOrder>
-  </summary>
+<claudeExecutionRequest generatedAt="2026-04-22" project="Epsilon" workspace="/Users/evanfoulk/epsilon">
+  <mission>
+    Apply security fixes directly in the codebase for the confirmed issues below. Prefer minimal, production-safe changes that preserve existing behavior where possible. Complete code changes, any required schema or env changes, and regression tests in one pass.
+  </mission>
 
-  <findings>
-    <finding id="EPS-001" severity="critical" category="authentication">
-      <title>Shop impersonation is possible because embedded session tokens are decoded but never signature-verified, and an untrusted header is accepted as fallback identity</title>
+  <workingRules>
+    <rule>Do not trust client-provided shop identity unless it is cryptographically verified or bound to trusted server-side session state.</rule>
+    <rule>Fail closed on authentication and authorization checks.</rule>
+    <rule>Preserve tenant isolation for every read, write, and Shopify Admin API action.</rule>
+    <rule>Do not introduce placeholder security checks that only decode data without verifying authenticity.</rule>
+    <rule>Prefer actionable tests that prove the vulnerability is closed.</rule>
+  </workingRules>
+
+  <priorityOrder>
+    <item order="1" id="EPS-001" severity="critical">Fix tenant authentication trust boundary</item>
+    <item order="2" id="EPS-003" severity="high">Lock down arbitrary browser-based audits</item>
+    <item order="3" id="EPS-002" severity="medium">Protect Shopify offline tokens at rest</item>
+  </priorityOrder>
+
+  <tasks>
+    <task id="EPS-001" severity="critical" category="authentication">
+      <title>Remove shop impersonation paths and enforce real Shopify identity verification</title>
+      <problem>
+        The code in app/utils/auth.ts currently treats a decoded bearer token as trusted even though the JWT signature is not verified, and it also accepts x-shopify-shop-domain as fallback identity. Server actions rely on this helper for tenant scoping and privileged operations.
+      </problem>
       <affectedFiles>
-        <file path="app/utils/auth.ts" lines="16-33,45-69,93-115" />
+        <file path="app/utils/auth.ts" />
+        <file path="app/actions/audit.ts" />
+        <file path="app/actions/altText.ts" />
+        <file path="app/services/remediation.ts" />
       </affectedFiles>
-      <evidence>
-        <item>`authorization` bearer tokens are only base64-decoded and checked for `exp` and `dest`.</item>
-        <item>The code explicitly leaves JWT signature verification as TODO.</item>
-        <item>If no bearer token is accepted, `x-shopify-shop-domain` is trusted without cryptographic proof.</item>
-      </evidence>
-      <impact>
-        An attacker who can invoke server actions or otherwise send crafted requests can impersonate any `*.myshopify.com` shop, read tenant-scoped data, generate or approve fixes, and trigger Shopify Admin API actions using stored offline tokens for the impersonated tenant.
-      </impact>
-      <exploitPath>
-        Forge a JWT payload with a chosen `dest`, or omit the token and send `x-shopify-shop-domain: victim.myshopify.com`, then call authenticated server actions that rely on `requireVerifiedShop()`.
-      </exploitPath>
-      <requiredFixes>
-        <fix>Replace custom token parsing with full Shopify session token verification using Shopify's supported verification utilities.</fix>
-        <fix>Remove the `x-shopify-shop-domain` trust fallback entirely unless it is tied to server-side session state.</fix>
-        <fix>Fail closed when verification cannot be completed.</fix>
-        <fix>Add tests proving forged bearer tokens and spoofed headers are rejected.</fix>
-      </requiredFixes>
+      <requiredChanges>
+        <change>Replace the custom token parsing path with Shopify-supported session-token verification, or another server-trusted session validation mechanism already available in the stack.</change>
+        <change>Remove acceptance of x-shopify-shop-domain as an authentication fallback unless it is validated against trusted server-owned session state.</change>
+        <change>Ensure requireVerifiedShop() fails closed when verification fails.</change>
+        <change>Review all call sites of requireVerifiedShop() and keep their semantics unchanged except for rejecting unverified callers.</change>
+      </requiredChanges>
       <acceptanceCriteria>
-        <criterion>Requests with modified JWT payloads are rejected.</criterion>
-        <criterion>Requests that only carry `x-shopify-shop-domain` are rejected.</criterion>
-        <criterion>All server actions requiring tenant identity derive it from a verified Shopify session token or equivalent server-trusted session state.</criterion>
+        <criterion>Forged bearer tokens with modified payloads are rejected.</criterion>
+        <criterion>Requests that only provide x-shopify-shop-domain are rejected.</criterion>
+        <criterion>Tenant-scoped server actions only execute when shop identity comes from verified Shopify auth.</criterion>
       </acceptanceCriteria>
-    </finding>
+      <tests>
+        <test>Add regression tests for forged JWT payloads.</test>
+        <test>Add regression tests for spoofed x-shopify-shop-domain headers.</test>
+      </tests>
+    </task>
 
-    <finding id="EPS-002" severity="high" category="secrets">
-      <title>Offline Shopify access tokens are stored in plaintext in Supabase</title>
+    <task id="EPS-003" severity="high" category="availability">
+      <title>Stop exposing unauthenticated arbitrary URL audits as an open browser-execution service</title>
+      <problem>
+        app/actions/audit.ts exports runAccessibilityAudit(url), which launches Playwright for arbitrary user-supplied HTTPS URLs. The client calls this path directly from app/components/AuditTab.tsx without authentication or robust abuse controls.
+      </problem>
       <affectedFiles>
-        <file path="app/api/auth/shopify/callback/route.ts" lines="82-89" />
-        <file path="app/utils/shopifySession.ts" lines="36-47,64-71" />
-        <file path="supabase/migrations/002_shopify_sessions.sql" lines="2-11" />
+        <file path="app/actions/audit.ts" />
+        <file path="app/components/AuditTab.tsx" />
+        <file path="app/utils/rateLimit.ts" />
       </affectedFiles>
-      <evidence>
-        <item>`session.accessToken` is persisted directly into `shopify_sessions.access_token`.</item>
-        <item>The database schema defines `access_token TEXT NOT NULL` without envelope encryption or key management.</item>
-      </evidence>
-      <impact>
-        A database leak, SQL console misuse, misconfigured backups, or insider access would expose long-lived offline Admin API tokens and allow direct compromise of connected Shopify stores.
-      </impact>
-      <requiredFixes>
-        <fix>Encrypt access tokens at rest using envelope encryption backed by a server-side key management strategy.</fix>
-        <fix>Decrypt only at the point of Shopify client construction.</fix>
-        <fix>Minimize token logging and error propagation around session storage and retrieval.</fix>
-        <fix>Plan key rotation and token re-encryption support.</fix>
-      </requiredFixes>
+      <requiredChanges>
+        <change>Require authenticated tenancy for expensive browser-based audits, or remove the arbitrary URL audit path if it is not required for product behavior.</change>
+        <change>If any public path remains, apply strict abuse controls that do not rely solely on untrusted shop values.</change>
+        <change>Add a clear boundary between auditing the verified tenant store and auditing arbitrary external URLs.</change>
+        <change>Keep the existing verified-shop audit flow working.</change>
+      </requiredChanges>
       <acceptanceCriteria>
-        <criterion>Database rows no longer contain usable plaintext Shopify tokens.</criterion>
-        <criterion>Shopify clients can still be constructed by server code after decrypting values in memory.</criterion>
-        <criterion>A migration path exists for already-stored plaintext tokens.</criterion>
+        <criterion>Unauthenticated users cannot launch unlimited Chromium audits against arbitrary HTTPS targets.</criterion>
+        <criterion>The verified-shop audit flow still works for legitimate embedded users.</criterion>
       </acceptanceCriteria>
-    </finding>
+      <tests>
+        <test>Add coverage proving the arbitrary unauthenticated path is blocked or no longer reachable.</test>
+      </tests>
+    </task>
 
-    <finding id="EPS-003" severity="high" category="availability">
-      <title>Public URL auditing launches a full browser against arbitrary HTTPS targets without authentication or effective abuse controls</title>
+    <task id="EPS-002" severity="medium" category="secrets">
+      <title>Protect Shopify offline access tokens at rest</title>
+      <problem>
+        Shopify offline tokens are stored as plaintext in the shopify_sessions table and are read back directly for Shopify Admin API client construction.
+      </problem>
       <affectedFiles>
-        <file path="app/actions/audit.ts" lines="51-118,197-215" />
-        <file path="app/components/AuditTab.tsx" lines="98-114" />
+        <file path="app/api/auth/shopify/callback/route.ts" />
+        <file path="app/utils/shopifySession.ts" />
+        <file path="supabase/migrations/002_shopify_sessions.sql" />
       </affectedFiles>
-      <evidence>
-        <item>`runAccessibilityAudit(url)` is exported as a server action and can be triggered for arbitrary URLs.</item>
-        <item>The function launches Chromium, loads remote pages, waits for `networkidle`, and allows 30 second navigation timeouts.</item>
-        <item>There is no authentication requirement and no rate limit on this generic audit path.</item>
-      </evidence>
-      <impact>
-        Attackers can burn CPU, memory, browser slots, egress, and third-party API quotas by repeatedly submitting expensive audits, turning the service into a resource exhaustion target and an arbitrary external web fetcher.
-      </impact>
-      <requiredFixes>
-        <fix>Require authenticated tenancy for browser-based audits, or place the unauthenticated path behind strict IP/session-based rate limiting and quotas.</fix>
-        <fix>Cap concurrent browser launches and overall job duration.</fix>
-        <fix>Consider a queue/worker model rather than direct request-time execution.</fix>
-        <fix>Log and meter audit invocations by actor, not just by shop.</fix>
-      </requiredFixes>
+      <requiredChanges>
+        <change>Encrypt access tokens before persistence using a server-side secret not exposed to the client.</change>
+        <change>Decrypt tokens only at the point where a Shopify client is constructed on the server.</change>
+        <change>Add an environment variable contract for the encryption key and fail safely when it is missing.</change>
+        <change>Provide a migration path for existing plaintext rows, either via backward-compatible reads plus re-save, or an explicit migration strategy documented in code comments or setup docs.</change>
+      </requiredChanges>
       <acceptanceCriteria>
-        <criterion>Unauthenticated callers cannot launch unlimited audits.</criterion>
-        <criterion>Repeated requests from the same actor are throttled consistently across instances.</criterion>
-        <criterion>The service maintains bounded browser concurrency.</criterion>
+        <criterion>Newly stored database rows do not contain usable plaintext Shopify tokens.</criterion>
+        <criterion>Existing application behavior still works when retrieving sessions for Shopify API calls.</criterion>
       </acceptanceCriteria>
-    </finding>
+      <tests>
+        <test>Add focused tests for encrypt/decrypt helpers or equivalent session-storage logic.</test>
+      </tests>
+    </task>
+  </tasks>
 
-    <finding id="EPS-004" severity="medium" category="ssrf">
-      <title>SSRF checks are vulnerable to DNS rebinding and TOCTOU because hostname validation is separate from the browser's actual network connection</title>
-      <affectedFiles>
-        <file path="app/utils/ssrf-protection.ts" lines="57-123" />
-        <file path="app/actions/audit.ts" lines="90-103,106-115" />
-      </affectedFiles>
-      <evidence>
-        <item>`validateURL()` resolves DNS and approves the hostname before the browser makes the real request.</item>
-        <item>The approved IP is not pinned to the subsequent browser connection.</item>
-        <item>The request interceptor repeats the same hostname-based check, which still depends on fresh DNS resolution and does not bind the browser to the vetted address.</item>
-      </evidence>
-      <impact>
-        An attacker who controls DNS for a target hostname may pass validation with a public IP and later rebind the hostname to internal infrastructure or cloud metadata endpoints when Chromium performs the real fetch.
-      </impact>
-      <requiredFixes>
-        <fix>Resolve and pin approved addresses, or proxy outbound requests through a controlled allow/deny layer that evaluates the actual destination socket.</fix>
-        <fix>Reject domains with unstable or attacker-controlled resolution where practical.</fix>
-        <fix>Expand SSRF defenses to treat DNS rebinding as part of the threat model.</fix>
-      </requiredFixes>
-      <acceptanceCriteria>
-        <criterion>A hostname cannot pass validation and later connect to a different blocked IP.</criterion>
-        <criterion>Tests cover DNS rebinding or equivalent mocked address-swapping scenarios.</criterion>
-      </acceptanceCriteria>
-    </finding>
+  <implementationNotes>
+    <note>Prefer fixing authentication first because the other server actions depend on that trust boundary.</note>
+    <note>Keep edits small and localized where possible.</note>
+    <note>If the repo lacks an existing test harness, add the lightest practical tests or a documented verification script consistent with the project stack.</note>
+    <note>Do not silently weaken existing SSRF checks while fixing audit access controls.</note>
+  </implementationNotes>
 
-    <finding id="EPS-005" severity="medium" category="tenant-isolation">
-      <title>Tenant isolation depends entirely on application code because RLS is disabled on security-sensitive tables</title>
-      <affectedFiles>
-        <file path="supabase/migrations/003_add_tenant_isolation_to_audits.sql" lines="12-18" />
-        <file path="supabase/migrations/004_add_proposed_fixes_table.sql" lines="43-49" />
-        <file path="app/actions/audit.ts" lines="282-292" />
-        <file path="app/services/remediation.ts" lines="626-677,709-756" />
-      </affectedFiles>
-      <evidence>
-        <item>`audits` RLS is disabled.</item>
-        <item>`proposed_fixes` RLS is disabled.</item>
-        <item>Server code relies on `shop` filters while using the service-role client that bypasses database protections.</item>
-      </evidence>
-      <impact>
-        Any future missed filter, auth bypass, debug endpoint, or accidental client exposure of privileged queries becomes a full cross-tenant data disclosure or write vulnerability because the database is not enforcing tenant boundaries.
-      </impact>
-      <requiredFixes>
-        <fix>Reintroduce RLS where feasible, with policies aligned to a trustworthy authenticated principal.</fix>
-        <fix>Add schema constraints such as `shop NOT NULL` where tenant binding is mandatory.</fix>
-        <fix>Reduce service-role usage to the smallest possible set of trusted server paths.</fix>
-      </requiredFixes>
-      <acceptanceCriteria>
-        <criterion>Cross-tenant access is denied even if an application query forgets the `shop` filter.</criterion>
-        <criterion>`audits` and `proposed_fixes` records cannot be inserted without a tenant binding.</criterion>
-      </acceptanceCriteria>
-    </finding>
-
-    <finding id="EPS-006" severity="medium" category="rate-limiting">
-      <title>Rate limiting is in-memory and keyed to attacker-controlled values, so protections disappear across instances and are easy to evade</title>
-      <affectedFiles>
-        <file path="app/utils/rateLimit.ts" lines="1-84" />
-        <file path="app/api/auth/shopify/callback/route.ts" lines="30-39" />
-        <file path="app/actions/audit.ts" lines="17-24" />
-      </affectedFiles>
-      <evidence>
-        <item>The limiter uses a process-local `Map`.</item>
-        <item>Serverless or horizontally scaled deployments will not share counters.</item>
-        <item>The OAuth limiter is keyed by `shop`, which is user-supplied and easy to rotate.</item>
-      </evidence>
-      <impact>
-        Abuse protections are weaker than they appear in production and can be bypassed by distributing requests across instances or varying the chosen shop key.
-      </impact>
-      <requiredFixes>
-        <fix>Move rate limiting to a shared store such as Redis, Upstash, or another centralized backend.</fix>
-        <fix>Key limits by actor identity or source IP plus route, not only by shop.</fix>
-        <fix>Apply limits consistently to OAuth, audits, AI generation, and any browser-launching paths.</fix>
-      </requiredFixes>
-      <acceptanceCriteria>
-        <criterion>Limits continue to hold under multi-instance deployment.</criterion>
-        <criterion>Rotating the `shop` query parameter does not bypass callback abuse protection.</criterion>
-      </acceptanceCriteria>
-    </finding>
-  </findings>
-
-  <executionPlan>
-    <phase order="1" goal="Restore trust boundaries">
-      <task>Fix EPS-001 before touching lower-severity issues because it undermines every tenant-scoped server action.</task>
-      <task>After auth is trustworthy, add regression tests for spoofed headers and forged tokens.</task>
-    </phase>
-    <phase order="2" goal="Protect secrets and production availability">
-      <task>Implement token encryption at rest for Shopify sessions.</task>
-      <task>Lock down or meter public browser-based audit execution.</task>
-    </phase>
-    <phase order="3" goal="Harden platform controls">
-      <task>Strengthen SSRF protections against DNS rebinding.</task>
-      <task>Move tenant isolation and abuse controls closer to the database and shared infrastructure layers.</task>
-    </phase>
-  </executionPlan>
-</epsilonSecurityReview>
+  <expectedDeliverables>
+    <deliverable>Updated application code implementing the fixes.</deliverable>
+    <deliverable>Any needed schema or migration changes.</deliverable>
+    <deliverable>Regression tests or equivalent automated verification for each fixed issue.</deliverable>
+    <deliverable>A short summary of what changed, any new environment variables, and any manual migration steps required.</deliverable>
+  </expectedDeliverables>
+</claudeExecutionRequest>
