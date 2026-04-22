@@ -49,11 +49,26 @@ export async function runAccessibilityAuditForShop(): Promise<AuditResult | Audi
 }
 
 /**
+ * Audit any public URL — for use in the non-embedded (standalone) version.
+ * SSRF protection validates the URL before any outbound request is made.
+ * Not bound to a Shopify shop, so results are not persisted to history.
+ */
+export async function runAccessibilityAuditForURL(url: string): Promise<AuditResult | AuditError> {
+  // Basic presence check — SSRF validation covers the rest
+  if (!url || typeof url !== 'string') {
+    return { error: 'Invalid URL', details: 'A URL is required' }
+  }
+
+  // Normalize: add https:// if no protocol provided
+  const normalized = /^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`
+
+  return runAccessibilityAudit(normalized)
+}
+
+/**
  * SECURITY CRITICAL: Internal-only function - NOT exported to client
  * This function launches expensive Chromium browser instances
  * ONLY callable from verified server-side code paths
- *
- * Arbitrary URL auditing is BLOCKED - only trusted shop audits allowed
  */
 async function runAccessibilityAudit(
   url: string,

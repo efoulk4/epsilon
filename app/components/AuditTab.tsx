@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { runAccessibilityAuditForShop } from '../actions/audit'
+import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../actions/audit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
@@ -20,6 +20,7 @@ import {
   Link,
   Box,
   InlineGrid,
+  TextField,
 } from '@shopify/polaris'
 import { StoreIcon } from '@shopify/polaris-icons'
 
@@ -57,6 +58,7 @@ export function AuditTab() {
     }
   }>>(new Map())
   const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
+  const [urlInput, setUrlInput] = useState('')
 
   // Detect if running in Shopify embedded context
   useEffect(() => {
@@ -98,6 +100,27 @@ export function AuditTab() {
     }
   }
 
+
+  const handleAuditURL = async () => {
+    if (!urlInput.trim()) return
+    setLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      const auditResult = await runAccessibilityAuditForURL(urlInput.trim())
+      if ('error' in auditResult) {
+        setError(auditResult.details || auditResult.error)
+      } else {
+        setResult(auditResult)
+      }
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const getImpactBadge = (impact: ImpactLevel): 'critical' | 'warning' | 'attention' | 'info' => {
     switch (impact) {
@@ -263,6 +286,35 @@ export function AuditTab() {
         </Card>
       )}
 
+
+      {/* URL Audit Card — shown in standalone (non-embedded) mode */}
+      {!isEmbedded && (
+        <Card>
+          <BlockStack gap="400">
+            <Text as="h2" variant="headingMd">
+              Audit a URL
+            </Text>
+            <form onSubmit={(e) => { e.preventDefault(); handleAuditURL() }}>
+              <TextField
+                label="Website URL"
+                value={urlInput}
+                onChange={setUrlInput}
+                placeholder="https://example.com"
+                autoComplete="url"
+                connectedRight={
+                  <Button
+                    variant="primary"
+                    submit
+                    loading={loading}
+                  >
+                    Run Audit
+                  </Button>
+                }
+              />
+            </form>
+          </BlockStack>
+        </Card>
+      )}
 
       {/* Error Display */}
       {error && (
