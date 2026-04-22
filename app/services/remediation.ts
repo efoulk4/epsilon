@@ -3,6 +3,9 @@
 import { getShopifyGraphQLClient } from '@/app/utils/shopifyClient'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { AuditViolation } from '@/types/audit'
+import { requireVerifiedShop } from '@/app/utils/auth'
+import { getSupabaseAdmin } from '@/lib/supabase'
+import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 
 const genAI = process.env.GOOGLE_API_KEY
   ? new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
@@ -289,11 +292,58 @@ async function applyCodeFix(
 }
 
 /**
+ * SECURITY: Save AI-generated fix proposal to database for review
+ * Never auto-apply AI fixes - require human approval
+ */
+async function saveProposedFix(
+  shop: string,
+  violation: {
+    id: string
+    description: string
+    node: ViolationNode
+  },
+  fixData: any
+): Promise<{ success: boolean; proposalId?: string; error?: string }> {
+  try {
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('proposed_fixes')
+      .insert({
+        shop, // CRITICAL: Tenant binding
+        violation_id: violation.id,
+        violation_description: violation.description,
+        affected_resource_type: fixData.location || 'unknown',
+        affected_resource_id: fixData.shopifyResourceId || null,
+        ai_explanation: fixData.explanation,
+        original_code: violation.node.html,
+        proposed_code: fixData.correctedCode,
+        fix_type: fixData.fixType,
+        confidence_score: fixData.confidence || null,
+        status: 'pending',
+      })
+      .select()
+
+    if (error) {
+      console.error('[saveProposedFix] Database error:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, proposalId: data[0]?.id }
+  } catch (error) {
+    console.error('[saveProposedFix] Unexpected error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
  * AI-powered agent that analyzes violations and generates code fixes
  * This is the main entry point for fixing any accessibility violation
  */
 export async function fixViolationWithAI(
-  shop: string,
   violation: {
     id: string
     description: string
@@ -315,6 +365,18 @@ export async function fixViolationWithAI(
   }
 }> {
   try {
+    // SECURITY: Get verified shop from server-side auth, not client params
+    const shop = await requireVerifiedShop()
+
+    // SECURITY: Rate limiting - prevent AI fix generation spam
+    const rateLimit = checkRateLimit(`ai-fix:${shop}`, RATE_LIMITS.aiFix)
+    if (!rateLimit.allowed) {
+      return {
+        success: false,
+        error: `Rate limit exceeded. You can generate ${rateLimit.limit} AI fixes per hour. Please try again after ${new Date(rateLimit.resetTime).toLocaleTimeString()}`,
+      }
+    }
+
     if (!genAI) {
       return {
         success: false,
@@ -412,31 +474,32 @@ Format your response as JSON:
       }
     }
 
-    // Try to apply the fix automatically
-    let appliedFix = false
-    let applyError: string | undefined
+    // SECURITY: Save proposed fix for review instead of auto-applying
+    // AI-generated fixes must be approved by a human before being applied
+    let proposalId: string | undefined
+    let saveError: string | undefined
 
-    if (fixData.canAutoFix && fixData.correctedCode) {
-      const applyResult = await applyCodeFix(shop, violation.node, fixData)
+    if (fixData.correctedCode) {
+      const saveResult = await saveProposedFix(shop, violation, fixData)
 
-      if (applyResult.success && applyResult.appliedFix) {
-        appliedFix = true
-        console.log('[fixViolationWithAI] Fix applied successfully via API')
+      if (saveResult.success) {
+        proposalId = saveResult.proposalId
+        console.log('[fixViolationWithAI] Fix proposal saved for review:', proposalId)
       } else {
-        applyError = applyResult.error
-        console.log('[fixViolationWithAI] Could not apply via API:', applyError)
+        saveError = saveResult.error
+        console.log('[fixViolationWithAI] Failed to save proposal:', saveError)
       }
     }
 
     // Generate CSS fix if applicable (for theme-level fixes)
-    const cssCode = !appliedFix ? generateCSSFix(violation.node, fixData.correctedCode || '', fixData) : null
+    const cssCode = generateCSSFix(violation.node, fixData.correctedCode || '', fixData)
 
     return {
       success: true,
-      fixDescription: appliedFix
-        ? `✅ Fix Applied Successfully!\n\n${fixData.explanation}\n\nThe accessibility issue has been automatically corrected in your Shopify ${fixData.location || 'content'}.`
-        : `${fixData.explanation}\n\nFix: ${fixData.fixDescription}${fixData.correctedCode ? `\n\nCorrected Code:\n${fixData.correctedCode}` : ''}${applyError ? `\n\nNote: ${applyError}` : ''}`,
-      appliedFix,
+      fixDescription: proposalId
+        ? `🔍 Fix Proposal Generated\n\n${fixData.explanation}\n\nFix: ${fixData.fixDescription}\n\n⚠️ This fix has been saved for review and will NOT be automatically applied to your store. You can review and approve it from the Fixes dashboard.\n\nProposal ID: ${proposalId}`
+        : `${fixData.explanation}\n\nFix: ${fixData.fixDescription}${fixData.correctedCode ? `\n\nCorrected Code:\n${fixData.correctedCode}` : ''}${saveError ? `\n\nNote: Could not save proposal - ${saveError}` : ''}`,
+      appliedFix: false, // Never auto-apply
       cssCode: cssCode || undefined,
       detailedInstructions: fixData.detailedInstructions,
     }
@@ -453,11 +516,13 @@ Format your response as JSON:
  * Generate alt text using Gemini AI and update a product image in Shopify
  */
 export async function fixProductAltText(
-  shop: string,
   productId: string,
   imageRecord: ImageRecord
 ): Promise<{ success: boolean; altText?: string; error?: string }> {
   try {
+    // SECURITY: Get verified shop from server-side auth, not client params
+    const shop = await requireVerifiedShop()
+
     console.log('[fixProductAltText] Generating alt text for image:', imageRecord.url)
 
     // Generate alt text using Gemini
@@ -553,6 +618,162 @@ export async function fixProductAltText(
 }
 
 /**
+ * SECURITY: Get pending fix proposals for review
+ */
+export async function getPendingFixProposals(): Promise<any[]> {
+  try {
+    const shop = await requireVerifiedShop()
+    const supabase = getSupabaseAdmin()
+
+    const { data, error } = await supabase
+      .from('proposed_fixes')
+      .select('*')
+      .eq('shop', shop) // CRITICAL: Tenant isolation
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('[getPendingFixProposals] Database error:', error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error('[getPendingFixProposals] Error:', error)
+    return []
+  }
+}
+
+/**
+ * SECURITY: Approve a fix proposal (marks it ready for application)
+ * Does NOT auto-apply - requires separate explicit apply action
+ */
+export async function approveFixProposal(
+  proposalId: string,
+  reviewNotes?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const shop = await requireVerifiedShop()
+    const supabase = getSupabaseAdmin()
+
+    // Verify proposal belongs to this shop
+    const { data: proposal, error: fetchError } = await supabase
+      .from('proposed_fixes')
+      .select('*')
+      .eq('id', proposalId)
+      .eq('shop', shop) // CRITICAL: Tenant isolation
+      .single()
+
+    if (fetchError || !proposal) {
+      return { success: false, error: 'Proposal not found or access denied' }
+    }
+
+    if (proposal.status !== 'pending') {
+      return { success: false, error: `Proposal is already ${proposal.status}` }
+    }
+
+    // Mark as approved
+    const { error: updateError } = await supabase
+      .from('proposed_fixes')
+      .update({
+        status: 'approved',
+        reviewed_at: new Date().toISOString(),
+        review_notes: reviewNotes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', proposalId)
+      .eq('shop', shop)
+
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error('[approveFixProposal] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * SECURITY: Apply an approved fix to Shopify
+ * Only works on approved fixes, maintains audit trail
+ */
+export async function applyApprovedFix(
+  proposalId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const shop = await requireVerifiedShop()
+    const supabase = getSupabaseAdmin()
+
+    // Fetch and verify proposal
+    const { data: proposal, error: fetchError } = await supabase
+      .from('proposed_fixes')
+      .select('*')
+      .eq('id', proposalId)
+      .eq('shop', shop) // CRITICAL: Tenant isolation
+      .single()
+
+    if (fetchError || !proposal) {
+      return { success: false, error: 'Proposal not found or access denied' }
+    }
+
+    if (proposal.status !== 'approved') {
+      return {
+        success: false,
+        error: `Cannot apply fix with status: ${proposal.status}. Must be approved first.`,
+      }
+    }
+
+    // Apply the fix based on resource type
+    let applyResult
+    if (proposal.affected_resource_type === 'product') {
+      applyResult = await applyProductContentFix(
+        shop,
+        proposal.affected_resource_id,
+        proposal.proposed_code,
+        'descriptionHtml'
+      )
+    } else if (proposal.affected_resource_type === 'page') {
+      applyResult = await applyPageContentFix(
+        shop,
+        proposal.affected_resource_id,
+        proposal.proposed_code
+      )
+    } else {
+      return {
+        success: false,
+        error: 'Cannot auto-apply this fix type. Manual application required.',
+      }
+    }
+
+    // Update proposal status
+    const newStatus = applyResult.success ? 'applied' : 'failed'
+    await supabase
+      .from('proposed_fixes')
+      .update({
+        status: newStatus,
+        applied_at: applyResult.success ? new Date().toISOString() : null,
+        application_error: applyResult.error || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', proposalId)
+      .eq('shop', shop)
+
+    return applyResult
+  } catch (error) {
+    console.error('[applyApprovedFix] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
  * Calculate a compliant color that meets WCAG contrast ratio requirements
  */
 function calculateCompliantColor(
@@ -634,7 +855,6 @@ function calculateCompliantColor(
  * This analyzes theme config and proposes compliant color alternatives
  */
 export async function fixContrastRatio(
-  shop: string,
   themeId: string,
   foregroundColorKey: string,
   backgroundColorKey: string,
@@ -647,6 +867,9 @@ export async function fixContrastRatio(
   error?: string
 }> {
   try {
+    // SECURITY: Get verified shop from server-side auth, not client params
+    const shop = await requireVerifiedShop()
+
     console.log('[fixContrastRatio] Calculating compliant color')
     console.log('  Foreground:', currentForeground)
     console.log('  Background:', currentBackground)
@@ -685,12 +908,14 @@ export async function fixContrastRatio(
  * Note: This requires additional Shopify theme API access
  */
 export async function applyThemeColorFix(
-  shop: string,
   themeId: string,
   settingKey: string,
   newColor: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    // SECURITY: Get verified shop from server-side auth, not client params
+    const shop = await requireVerifiedShop()
+
     // This is a placeholder for the actual theme API implementation
     // You would need to:
     // 1. Get REST API client (not GraphQL)

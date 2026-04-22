@@ -5,20 +5,40 @@ import chromiumPkg from '@sparticuz/chromium'
 import type { AuditResult, AuditError, ImpactLevel } from '@/types/audit'
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase'
 import { calculateHealthScore } from '@/app/utils/healthScore'
-import { getShopOnlineStoreUrl } from '@/app/utils/shopifyClient'
+import { requireVerifiedShop } from '@/app/utils/auth'
+import { validateShopifyStoreURL } from '@/app/utils/ssrf-protection'
+import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 
-export async function runAccessibilityAuditForShop(
-  shop: string
-): Promise<AuditResult | AuditError> {
+export async function runAccessibilityAuditForShop(): Promise<AuditResult | AuditError> {
   try {
-    // For now, construct the store URL directly from the shop domain
-    // This works because Shopify stores are always at https://{shop}
+    // SECURITY: Get verified shop from server-side auth, not client params
+    const shop = await requireVerifiedShop()
+
+    // SECURITY: Rate limiting - prevent audit spam (expensive operation)
+    const rateLimit = checkRateLimit(`audit:${shop}`, RATE_LIMITS.audit)
+    if (!rateLimit.allowed) {
+      return {
+        error: 'Rate limit exceeded',
+        details: `Too many audits. Please try again after ${new Date(rateLimit.resetTime).toLocaleTimeString()}`,
+      }
+    }
+
+    // SECURITY: Validate the shop URL before making outbound request
+    const validation = await validateShopifyStoreURL(shop)
+    if (!validation.allowed) {
+      return {
+        error: 'Invalid shop URL',
+        details: validation.error || 'URL validation failed',
+      }
+    }
+
     const storeUrl = `https://${shop}`
 
-    console.log(`[runAccessibilityAuditForShop] Auditing shop: ${shop} at URL: ${storeUrl}`)
+    console.log(`[runAccessibilityAuditForShop] Auditing verified shop at URL: ${storeUrl}`)
 
-    // Run the standard audit on the shop's URL
-    return await runAccessibilityAudit(storeUrl)
+    // Run the audit and bind it to the verified shop
+    const result = await runAccessibilityAudit(storeUrl, shop)
+    return result
   } catch (error) {
     console.error('Error running audit for shop:', error)
     return {
@@ -29,17 +49,20 @@ export async function runAccessibilityAuditForShop(
 }
 
 export async function runAccessibilityAudit(
-  url: string
+  url: string,
+  shop?: string
 ): Promise<AuditResult | AuditError> {
   let browser = null
 
   try {
-    // Validate URL
-    const parsedUrl = new URL(url)
-    if (!parsedUrl.protocol.startsWith('http')) {
+    // SECURITY: Validate URL to prevent SSRF
+    const { validateURL } = await import('@/app/utils/ssrf-protection')
+    const validation = await validateURL(url)
+
+    if (!validation.allowed) {
       return {
-        error: 'Invalid URL',
-        details: 'URL must start with http:// or https://',
+        error: 'URL validation failed',
+        details: validation.error || 'Invalid or blocked URL',
       }
     }
 
@@ -63,6 +86,22 @@ export async function runAccessibilityAudit(
     })
 
     const page = await context.newPage()
+
+    // SECURITY: Intercept requests to prevent SSRF via redirects
+    await page.route('**/*', async (route) => {
+      const requestUrl = route.request().url()
+
+      // Validate every request (including redirects)
+      const { validateURL } = await import('@/app/utils/ssrf-protection')
+      const validation = await validateURL(requestUrl)
+
+      if (!validation.allowed) {
+        console.error('[SSRF Protection] Blocked request to:', requestUrl)
+        await route.abort('blockedbyclient')
+      } else {
+        await route.continue()
+      }
+    })
 
     // Navigate to the URL with timeout
     await page.goto(url, {
@@ -149,6 +188,11 @@ export async function runAccessibilityAudit(
       violationsByImpact,
     }
 
+    // SECURITY: Auto-save with tenant binding if shop is provided
+    if (shop) {
+      await saveAuditToDatabase(result, shop)
+    }
+
     return result
   } catch (error) {
     console.error('Audit error:', error)
@@ -171,8 +215,14 @@ export async function runAccessibilityAudit(
   }
 }
 
-export async function saveAuditToDatabase(
-  auditResult: AuditResult
+/**
+ * SECURITY: Internal-only function - NOT exported to client
+ * Saves audit with verified shop binding
+ * Shop parameter comes from verified server-side auth only
+ */
+async function saveAuditToDatabase(
+  auditResult: AuditResult,
+  shop: string
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   if (!isSupabaseConfigured) {
     console.warn('Supabase not configured. Skipping database save.')
@@ -183,9 +233,11 @@ export async function saveAuditToDatabase(
     const healthScore = calculateHealthScore(auditResult)
     const supabaseAdmin = getSupabaseAdmin()
 
-    const { data, error } = await supabaseAdmin
+    // SECURITY: Always bind audit to shop for tenant isolation
+    const { data, error} = await supabaseAdmin
       .from('audits')
       .insert({
+        shop, // CRITICAL: Tenant binding
         url: auditResult.url,
         timestamp: auditResult.timestamp,
         total_violations: auditResult.totalViolations,
@@ -196,14 +248,14 @@ export async function saveAuditToDatabase(
       .select()
 
     if (error) {
-      console.error('Error saving audit to database:', error)
+      console.error('[saveAuditToDatabase] Database error')
       return { success: false, error: error.message }
     }
 
-    console.log('[saveAuditToDatabase] Successfully saved audit:', data[0]?.id)
+    console.log('[saveAuditToDatabase] Audit saved successfully')
     return { success: true, id: data[0]?.id }
   } catch (error) {
-    console.error('Unexpected error saving audit:', error)
+    console.error('[saveAuditToDatabase] Unexpected error')
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -221,20 +273,26 @@ export async function getAuditHistory(
   }
 
   try {
+    // SECURITY: Get verified shop - only show audits for this tenant
+    const shop = await requireVerifiedShop()
+
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)
 
     const supabaseAdmin = getSupabaseAdmin()
 
+    // SECURITY: Filter by shop FIRST, then by URL
+    // This prevents cross-tenant data exposure
     const { data, error } = await supabaseAdmin
       .from('audits')
       .select('*')
+      .eq('shop', shop) // CRITICAL: Tenant isolation
       .eq('url', url)
       .gte('created_at', startDate.toISOString())
       .order('created_at', { ascending: true })
 
     if (error) {
-      console.error('Error fetching audit history:', error)
+      console.error('[getAuditHistory] Database error')
       return []
     }
 
@@ -248,7 +306,7 @@ export async function getAuditHistory(
       })) || []
     )
   } catch (error) {
-    console.error('Unexpected error fetching audit history:', error)
+    console.error('[getAuditHistory] Unauthorized or error:', error)
     return []
   }
 }

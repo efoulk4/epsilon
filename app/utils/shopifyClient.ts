@@ -21,12 +21,7 @@ export async function getShopifyGraphQLClient(shop: string) {
     throw new Error('No valid session found for shop')
   }
 
-  console.log('[getShopifyGraphQLClient] Session found:', {
-    shop: session.shop,
-    has_access_token: !!session.access_token,
-    scope: session.scope,
-    is_online: session.is_online
-  })
+  // SECURITY: Do not log session details (tokens, scopes)
 
   const client = new shopify.clients.Graphql({
     session: {

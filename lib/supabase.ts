@@ -16,9 +16,11 @@ export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)
   : createClient('https://placeholder.supabase.co', 'placeholder-key')
 
-// Server-side Supabase client (uses service role key, bypasses RLS)
-// Use this for server actions and API routes
-// Create this as a function to ensure env vars are loaded at runtime
+/**
+ * SECURITY: Server-side Supabase client (uses service role key, bypasses RLS)
+ * Use ONLY in server actions and API routes with verified authentication
+ * Call this function explicitly - do NOT use a global export
+ */
 export function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -39,8 +41,8 @@ export function getSupabaseAdmin() {
   })
 }
 
-// Keep the old export for backwards compatibility (but lazy-load it)
-export const supabaseAdmin = getSupabaseAdmin()
+// SECURITY: Global export removed - use getSupabaseAdmin() function instead
+// This prevents accidental use of privileged client in unsafe code paths
 
 // Database types
 export type Database = {

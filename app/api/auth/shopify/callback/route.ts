@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { shopifyApi, ApiVersion, Session } from '@shopify/shopify-api'
 import '@shopify/shopify-api/adapters/node'
 import { createClient } from '@supabase/supabase-js'
+import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY!,
@@ -26,13 +27,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing shop parameter' }, { status: 400 })
   }
 
+  // SECURITY: Rate limiting - prevent OAuth callback abuse
+  const rateLimit = checkRateLimit(`oauth:${shop}`, RATE_LIMITS.oauth)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      {
+        error: 'Rate limit exceeded',
+        details: 'Too many OAuth attempts. Please try again later.',
+      },
+      { status: 429 }
+    )
+  }
+
   try {
-    // Complete OAuth and get access token
+    // SECURITY: Complete OAuth with automatic state and HMAC verification
+    // shopify.auth.callback() validates:
+    // - State parameter matches (CSRF protection)
+    // - HMAC signature is valid (request authenticity)
+    // - Shop domain is valid
     const callbackResponse = await shopify.auth.callback({
       rawRequest: request as any,
     })
 
     const { session } = callbackResponse
+
+    // SECURITY: Additional validation - ensure session shop matches query param
+    if (session.shop !== shop) {
+      console.error('[OAuth Callback] Shop mismatch - session:', session.shop, 'query:', shop)
+      return NextResponse.json(
+        { error: 'OAuth session mismatch' },
+        { status: 400 }
+      )
+    }
 
     // Store session in Supabase
     if (supabaseUrl && supabaseServiceKey) {
@@ -63,19 +89,35 @@ export async function GET(request: NextRequest) {
       }).select()
 
       if (error) {
-        console.error('[OAuth Callback] Failed to store session in Supabase:', error)
+        console.error('[OAuth Callback] Failed to store session in Supabase')
+        // SECURITY: Do not log error details which may contain sensitive data
       } else {
-        console.log('[OAuth Callback] Session stored successfully:', data)
+        console.log('[OAuth Callback] Session stored successfully for shop:', session.shop)
+        // SECURITY: Do not log session data (contains access tokens)
       }
     } else {
       console.error('[OAuth Callback] Supabase credentials missing')
     }
 
-    // Redirect to app with shop and host params
+    // SECURITY: Use verified session shop for redirect, not query params
+    // This prevents attacker-controlled values from influencing post-auth state
     const redirectUrl = new URL('/', process.env.SHOPIFY_APP_URL!)
-    redirectUrl.searchParams.set('shop', shop)
+    redirectUrl.searchParams.set('shop', session.shop) // Use verified shop from session
+
+    // SECURITY: Validate host parameter if present
+    // Shopify host format: base64(shop/admin)
     if (host) {
-      redirectUrl.searchParams.set('host', host)
+      try {
+        const decodedHost = Buffer.from(host, 'base64').toString('utf-8')
+        // Verify host contains the verified shop domain
+        if (decodedHost.includes(session.shop)) {
+          redirectUrl.searchParams.set('host', host)
+        } else {
+          console.error('[OAuth Callback] Host parameter does not match verified shop')
+        }
+      } catch (error) {
+        console.error('[OAuth Callback] Invalid host parameter')
+      }
     }
 
     const response = NextResponse.redirect(redirectUrl)

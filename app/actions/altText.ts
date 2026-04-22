@@ -1,6 +1,9 @@
 'use server'
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { validateImageURL } from '@/app/utils/ssrf-protection'
+import { requireVerifiedShop } from '@/app/utils/auth'
+import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 
 const apiKey = process.env.GEMINI_API_KEY || ''
 const isGeminiConfigured = apiKey && apiKey !== 'your_gemini_api_key_here'
@@ -8,10 +11,31 @@ const isGeminiConfigured = apiKey && apiKey !== 'your_gemini_api_key_here'
 export async function generateAltText(
   imageUrl: string
 ): Promise<{ success: boolean; altText?: string; error?: string }> {
+  // SECURITY: Require verified shop authentication
+  const shop = await requireVerifiedShop()
+
+  // SECURITY: Rate limiting - prevent alt-text generation spam
+  const rateLimit = checkRateLimit(`alt-text:${shop}`, RATE_LIMITS.aiFix)
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      error: `Rate limit exceeded. You can generate ${rateLimit.limit} alt texts per hour. Please try again after ${new Date(rateLimit.resetTime).toLocaleTimeString()}`,
+    }
+  }
+
   if (!isGeminiConfigured) {
     return {
       success: false,
       error: 'Gemini API key not configured. Please add GEMINI_API_KEY to .env.local',
+    }
+  }
+
+  // SECURITY: Validate image URL to prevent SSRF
+  const validation = validateImageURL(imageUrl)
+  if (!validation.allowed) {
+    return {
+      success: false,
+      error: validation.error || 'Invalid image URL',
     }
   }
 
@@ -71,55 +95,11 @@ export async function saveAltTextToShopify(
   imageId: string,
   altText: string
 ): Promise<{ success: boolean; error?: string }> {
-  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN
-  const storeDomain = process.env.SHOPIFY_STORE_DOMAIN
-
-  if (
-    !accessToken ||
-    !storeDomain ||
-    accessToken === 'your_shopify_access_token_here' ||
-    storeDomain === 'your-store.myshopify.com'
-  ) {
-    return {
-      success: false,
-      error: 'Shopify API not configured. Please add SHOPIFY_ACCESS_TOKEN and SHOPIFY_STORE_DOMAIN to .env.local',
-    }
-  }
-
-  try {
-    // This is a placeholder for Shopify API integration
-    // In a real implementation, you would use the Shopify Admin API to update the image
-    const response = await fetch(
-      `https://${storeDomain}/admin/api/2024-01/products/images/${imageId}.json`,
-      {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': accessToken,
-        },
-        body: JSON.stringify({
-          image: {
-            id: imageId,
-            alt: altText,
-          },
-        }),
-      }
-    )
-
-    if (!response.ok) {
-      const errorData = await response.json()
-      return {
-        success: false,
-        error: errorData.errors || 'Failed to update image in Shopify',
-      }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error('Error saving alt text to Shopify:', error)
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred',
-    }
+  // SECURITY: This function is deprecated
+  // Use fixProductAltText from remediation.ts instead
+  // That function uses shop-specific credentials from the database
+  return {
+    success: false,
+    error: 'This function is deprecated. Use fixProductAltText from remediation service instead.',
   }
 }

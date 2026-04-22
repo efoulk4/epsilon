@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { runAccessibilityAudit, runAccessibilityAuditForShop, saveAuditToDatabase } from '../actions/audit'
+import { runAccessibilityAudit, runAccessibilityAuditForShop } from '../actions/audit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
@@ -78,28 +78,19 @@ export function AuditTab() {
   }, [searchParams])
 
   const handleAuditMyStore = async () => {
-    if (!shop) {
-      setError('Shop information not found')
-      return
-    }
-
     setLoading(true)
     setError(null)
     setResult(null)
 
     try {
-      const auditResult = await runAccessibilityAuditForShop(shop)
+      // SECURITY: Shop is now verified server-side, no need to pass it
+      const auditResult = await runAccessibilityAuditForShop()
 
       if ('error' in auditResult) {
         setError(auditResult.details || auditResult.error)
       } else {
         setResult(auditResult)
-
-        // Save audit to database
-        const saveResult = await saveAuditToDatabase(auditResult)
-        if (!saveResult.success && saveResult.error !== 'Supabase not configured') {
-          console.error('Failed to save audit to database:', saveResult.error)
-        }
+        // Audit is auto-saved with tenant binding server-side
       }
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
@@ -225,7 +216,8 @@ export function AuditTab() {
 
     try {
       // Use AI agent to analyze and generate fix
-      const result = await fixViolationWithAI(shop, {
+      // SECURITY: Shop is verified server-side, not passed from client
+      const result = await fixViolationWithAI({
         id: violation.id,
         description: violation.description,
         help: violation.help,
