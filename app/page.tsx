@@ -53,7 +53,15 @@ export default function Dashboard() {
     >
       <BlockStack gap="500">
         <Tabs tabs={tabs} selected={selectedTabIndex} onSelect={setSelectedTabIndex}>
-          {selectedTabIndex === 0 ? <AuditTab /> : <HistoryTab shop={shop} />}
+          {/* Keep both tabs mounted so audit results survive a tab switch */}
+          <div style={{ display: selectedTabIndex === 0 ? 'block' : 'none' }}>
+            <AuditTab />
+          </div>
+          {isEmbedded && (
+            <div style={{ display: selectedTabIndex === 1 ? 'block' : 'none' }}>
+              <HistoryTab shop={shop} />
+            </div>
+          )}
         </Tabs>
       </BlockStack>
     </Page>
