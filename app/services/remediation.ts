@@ -369,7 +369,7 @@ export async function fixViolationWithAI(
     const shop = await requireVerifiedShop()
 
     // SECURITY: Rate limiting - prevent AI fix generation spam
-    const rateLimit = checkRateLimit(`ai-fix:${shop}`, RATE_LIMITS.aiFix)
+    const rateLimit = await checkRateLimit(`ai-fix:${shop}`, RATE_LIMITS.aiFix)
     if (!rateLimit.allowed) {
       return {
         success: false,
@@ -388,16 +388,28 @@ export async function fixViolationWithAI(
 
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
+    // Sanitize user-controlled fields before interpolation to prevent prompt injection.
+    // These values come from axe-core scanning attacker-controlled page content.
+    const sanitizeForPrompt = (s: string) =>
+      s.replace(/[<>]/g, '').replace(/\n{3,}/g, '\n\n').slice(0, 2000)
+
+    const safeId = sanitizeForPrompt(String(violation.id))
+    const safeDescription = sanitizeForPrompt(String(violation.description))
+    const safeHelp = sanitizeForPrompt(String(violation.help))
+    const safeHtml = sanitizeForPrompt(String(violation.node.html))
+    const safeSelector = sanitizeForPrompt(violation.node.target.map(String).join(' > '))
+    const safeSummary = sanitizeForPrompt(String(violation.node.failureSummary))
+
     // Create a detailed prompt for the AI agent
     const prompt = `You are an accessibility expert helping fix WCAG violations in a Shopify store.
 
 VIOLATION DETAILS:
-- Type: ${violation.id}
-- Description: ${violation.description}
-- Guidance: ${violation.help}
-- Affected HTML: ${violation.node.html}
-- CSS Selector: ${violation.node.target.join(' > ')}
-- Failure Summary: ${violation.node.failureSummary}
+- Type: ${safeId}
+- Description: ${safeDescription}
+- Guidance: ${safeHelp}
+- Affected HTML: <VIOLATION_HTML>${safeHtml}</VIOLATION_HTML>
+- CSS Selector: <VIOLATION_SELECTOR>${safeSelector}</VIOLATION_SELECTOR>
+- Failure Summary: <VIOLATION_SUMMARY>${safeSummary}</VIOLATION_SUMMARY>
 
 TASK:
 Analyze this violation and provide:
@@ -453,7 +465,7 @@ Format your response as JSON:
     const result = await model.generateContent(prompt)
     const response = result.response.text()
 
-    console.log('[fixViolationWithAI] AI Response:', response)
+    // SECURITY: Do not log AI response — may contain reflected attacker-controlled content
 
     // Parse the AI response
     let fixData

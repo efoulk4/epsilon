@@ -49,7 +49,7 @@ export async function getVerifiedShop(): Promise<string | null> {
     const shop = sessionToken.dest.replace('https://', '')
 
     if (!isValidShopDomain(shop)) {
-      console.error('[getVerifiedShop] Invalid shop domain format:', shop)
+      console.error('[getVerifiedShop] Invalid shop domain format')
       return null
     }
 

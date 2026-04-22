@@ -1,8 +1,82 @@
 /**
- * SECURITY: Rate limiting to prevent abuse
- * Uses in-memory storage (suitable for single instance)
- * For production multi-instance deployments, use Redis or similar
+ * SECURITY: Rate limiting to prevent abuse.
+ *
+ * Uses Upstash Redis when UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
+ * are set (required for Vercel serverless where each invocation has its own
+ * process — an in-memory store resets on every cold start and can be trivially
+ * bypassed by distributing requests across Lambda instances).
+ *
+ * Falls back to in-memory when Redis is not configured (local dev / CI).
  */
+
+import { Redis } from '@upstash/redis'
+
+export interface RateLimitConfig {
+  windowMs: number   // Time window in milliseconds
+  maxRequests: number // Maximum requests per window
+}
+
+export interface RateLimitResult {
+  allowed: boolean
+  limit: number
+  remaining: number
+  resetTime: number
+}
+
+// ---------------------------------------------------------------------------
+// Redis backend (production)
+// ---------------------------------------------------------------------------
+
+let redis: Redis | null = null
+
+if (
+  process.env.UPSTASH_REDIS_REST_URL &&
+  process.env.UPSTASH_REDIS_REST_TOKEN
+) {
+  redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  })
+}
+
+async function checkRateLimitRedis(
+  identifier: string,
+  config: RateLimitConfig
+): Promise<RateLimitResult> {
+  const key = `rl:${identifier}`
+  const windowSec = Math.ceil(config.windowMs / 1000)
+  const now = Date.now()
+
+  // Atomic increment + set expiry if new key
+  const count = await redis!.incr(key)
+  if (count === 1) {
+    await redis!.expire(key, windowSec)
+  }
+
+  // Approximate reset time (may be off by up to 1s — acceptable)
+  const ttl = await redis!.ttl(key)
+  const resetTime = now + (ttl > 0 ? ttl * 1000 : config.windowMs)
+
+  if (count > config.maxRequests) {
+    return {
+      allowed: false,
+      limit: config.maxRequests,
+      remaining: 0,
+      resetTime,
+    }
+  }
+
+  return {
+    allowed: true,
+    limit: config.maxRequests,
+    remaining: config.maxRequests - count,
+    resetTime,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// In-memory backend (local dev / CI — single process only)
+// ---------------------------------------------------------------------------
 
 interface RateLimitEntry {
   count: number
@@ -21,37 +95,16 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000)
 
-export interface RateLimitConfig {
-  windowMs: number // Time window in milliseconds
-  maxRequests: number // Maximum requests per window
-}
-
-export interface RateLimitResult {
-  allowed: boolean
-  limit: number
-  remaining: number
-  resetTime: number
-}
-
-/**
- * Check if a request is allowed based on rate limits
- * @param identifier Unique identifier (shop domain, IP address, etc.)
- * @param config Rate limit configuration
- */
-export function checkRateLimit(
+function checkRateLimitMemory(
   identifier: string,
   config: RateLimitConfig
 ): RateLimitResult {
   const now = Date.now()
   const entry = rateLimitStore.get(identifier)
 
-  // No entry or expired entry - create new
   if (!entry || entry.resetTime < now) {
     const resetTime = now + config.windowMs
-    rateLimitStore.set(identifier, {
-      count: 1,
-      resetTime,
-    })
+    rateLimitStore.set(identifier, { count: 1, resetTime })
     return {
       allowed: true,
       limit: config.maxRequests,
@@ -60,10 +113,8 @@ export function checkRateLimit(
     }
   }
 
-  // Entry exists and not expired - increment count
   entry.count++
 
-  // Check if limit exceeded
   if (entry.count > config.maxRequests) {
     return {
       allowed: false,
@@ -79,6 +130,20 @@ export function checkRateLimit(
     remaining: config.maxRequests - entry.count,
     resetTime: entry.resetTime,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function checkRateLimit(
+  identifier: string,
+  config: RateLimitConfig
+): Promise<RateLimitResult> {
+  if (redis) {
+    return checkRateLimitRedis(identifier, config)
+  }
+  return checkRateLimitMemory(identifier, config)
 }
 
 /**

@@ -5,6 +5,15 @@ import crypto from 'crypto'
  * Uses AES-256-GCM for authenticated encryption
  */
 
+// Fail loudly at module load time rather than silently mid-request.
+// This surfaces misconfiguration immediately on startup / first import.
+if (typeof process !== 'undefined' && !process.env.ENCRYPTION_KEY) {
+  throw new Error(
+    'ENCRYPTION_KEY environment variable is required. ' +
+    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"'
+  )
+}
+
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16 // For GCM mode
 const AUTH_TAG_LENGTH = 16

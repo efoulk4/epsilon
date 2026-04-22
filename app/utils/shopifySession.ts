@@ -52,10 +52,10 @@ export async function getShopifySession(shop: string): Promise<ShopifySession | 
       data.access_token = decrypt(data.access_token)
     } else {
       // Legacy plaintext token - log warning and re-encrypt on next save
-      console.warn('[getShopifySession] Found unencrypted token for shop:', shop, '- should be re-encrypted')
+      console.warn('[getShopifySession] Found unencrypted token - should be re-encrypted')
     }
   } catch (decryptError) {
-    console.error('[getShopifySession] Token decryption failed for shop:', shop)
+    console.error('[getShopifySession] Token decryption failed')
     return null
   }
 

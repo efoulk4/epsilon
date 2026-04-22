@@ -15,7 +15,7 @@ export async function runAccessibilityAuditForShop(): Promise<AuditResult | Audi
     const shop = await requireVerifiedShop()
 
     // SECURITY: Rate limiting - prevent audit spam (expensive operation)
-    const rateLimit = checkRateLimit(`audit:${shop}`, RATE_LIMITS.audit)
+    const rateLimit = await checkRateLimit(`audit:${shop}`, RATE_LIMITS.audit)
     if (!rateLimit.allowed) {
       return {
         error: 'Rate limit exceeded',

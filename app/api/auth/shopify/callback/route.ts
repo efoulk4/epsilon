@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   }
 
   // SECURITY: Rate limiting - prevent OAuth callback abuse
-  const rateLimit = checkRateLimit(`oauth:${shop}`, RATE_LIMITS.oauth)
+  const rateLimit = await checkRateLimit(`oauth:${shop}`, RATE_LIMITS.oauth)
   if (!rateLimit.allowed) {
     return NextResponse.json(
       {

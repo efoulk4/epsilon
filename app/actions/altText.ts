@@ -15,7 +15,7 @@ export async function generateAltText(
   const shop = await requireVerifiedShop()
 
   // SECURITY: Rate limiting - prevent alt-text generation spam
-  const rateLimit = checkRateLimit(`alt-text:${shop}`, RATE_LIMITS.aiFix)
+  const rateLimit = await checkRateLimit(`alt-text:${shop}`, RATE_LIMITS.aiFix)
   if (!rateLimit.allowed) {
     return {
       success: false,
