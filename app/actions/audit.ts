@@ -54,13 +54,32 @@ export async function runAccessibilityAuditForShop(): Promise<AuditResult | Audi
  * Not bound to a Shopify shop, so results are not persisted to history.
  */
 export async function runAccessibilityAuditForURL(url: string): Promise<AuditResult | AuditError> {
-  // Basic presence check — SSRF validation covers the rest
   if (!url || typeof url !== 'string') {
     return { error: 'Invalid URL', details: 'A URL is required' }
   }
 
-  // Normalize: add https:// if no protocol provided
   const normalized = /^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`
+
+  // Rate limit by target domain — prevents hammering Chromium from the public endpoint.
+  // Uses the same shared store as the embedded audit limiter.
+  let domain = 'unknown'
+  try {
+    domain = new URL(normalized).hostname
+  } catch {
+    return { error: 'Invalid URL', details: 'Could not parse URL' }
+  }
+
+  const rateLimit = await checkRateLimit(`public-audit:${domain}`, {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxRequests: 5,            // 5 audits per domain per hour
+  })
+
+  if (!rateLimit.allowed) {
+    return {
+      error: 'Rate limit exceeded',
+      details: `Too many audits for this URL. Please try again after ${new Date(rateLimit.resetTime).toLocaleTimeString()}`,
+    }
+  }
 
   return runAccessibilityAudit(normalized)
 }
