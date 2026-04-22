@@ -46,7 +46,18 @@ export function AuditTab() {
     html: string
   } | null>(null)
   const [fixingViolations, setFixingViolations] = useState<Set<string>>(new Set())
-  const [fixResults, setFixResults] = useState<Map<string, { success: boolean; message: string; cssCode?: string; appliedFix?: boolean }>>(new Map())
+  const [fixResults, setFixResults] = useState<Map<string, {
+    success: boolean
+    message: string
+    cssCode?: string
+    appliedFix?: boolean
+    detailedInstructions?: {
+      steps: string[]
+      themeFile?: string
+      searchFor?: string
+      replaceWith?: string
+    }
+  }>>(new Map())
   const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
 
   // Detect if running in Shopify embedded context
@@ -230,6 +241,7 @@ export function AuditTab() {
             message: result.fixDescription || 'Fix generated successfully',
             cssCode: result.cssCode,
             appliedFix: result.appliedFix,
+            detailedInstructions: result.detailedInstructions,
           })
           return newMap
         })
@@ -592,35 +604,88 @@ export function AuditTab() {
                                                   >
                                                     <BlockStack gap="200">
                                                       <Text as="p" variant="bodyMd" fontWeight="semibold">
-                                                        How to apply this fix:
+                                                        {fixResult.detailedInstructions?.steps ? 'Detailed Fix Instructions:' : 'How to apply this fix:'}
                                                       </Text>
-                                                      <ol style={{ paddingLeft: '20px', margin: 0 }}>
-                                                        <li>
-                                                          <Text as="span" variant="bodySm">
-                                                            Go to <strong>Online Store → Themes</strong> in your Shopify admin
-                                                          </Text>
-                                                        </li>
-                                                        <li>
-                                                          <Text as="span" variant="bodySm">
-                                                            Click <strong>Customize</strong> on your active theme
-                                                          </Text>
-                                                        </li>
-                                                        <li>
-                                                          <Text as="span" variant="bodySm">
-                                                            Click <strong>Theme settings → Custom CSS</strong> (or edit theme.liquid)
-                                                          </Text>
-                                                        </li>
-                                                        <li>
-                                                          <Text as="span" variant="bodySm">
-                                                            Paste the CSS code above
-                                                          </Text>
-                                                        </li>
-                                                        <li>
-                                                          <Text as="span" variant="bodySm">
-                                                            Click <strong>Save</strong>
-                                                          </Text>
-                                                        </li>
-                                                      </ol>
+
+                                                      {/* Show AI-generated detailed instructions if available */}
+                                                      {fixResult.detailedInstructions?.steps ? (
+                                                        <>
+                                                          <ol style={{ paddingLeft: '20px', margin: 0 }}>
+                                                            {fixResult.detailedInstructions.steps.map((step, idx) => (
+                                                              <li key={idx}>
+                                                                <Text as="span" variant="bodySm">
+                                                                  {step}
+                                                                </Text>
+                                                              </li>
+                                                            ))}
+                                                          </ol>
+
+                                                          {/* Show specific file and code to find/replace */}
+                                                          {fixResult.detailedInstructions.themeFile && (
+                                                            <Box
+                                                              background="bg-surface"
+                                                              padding="200"
+                                                              borderRadius="100"
+                                                            >
+                                                              <BlockStack gap="100">
+                                                                <Text as="p" variant="bodySm" fontWeight="semibold">
+                                                                  📄 File: {fixResult.detailedInstructions.themeFile}
+                                                                </Text>
+                                                                {fixResult.detailedInstructions.searchFor && (
+                                                                  <>
+                                                                    <Text as="p" variant="bodySm">
+                                                                      🔍 Find:
+                                                                    </Text>
+                                                                    <code style={{ fontSize: '11px', display: 'block', padding: '8px', background: '#f6f6f7' }}>
+                                                                      {fixResult.detailedInstructions.searchFor}
+                                                                    </code>
+                                                                  </>
+                                                                )}
+                                                                {fixResult.detailedInstructions.replaceWith && (
+                                                                  <>
+                                                                    <Text as="p" variant="bodySm">
+                                                                      ✏️ Replace with:
+                                                                    </Text>
+                                                                    <code style={{ fontSize: '11px', display: 'block', padding: '8px', background: '#f6f6f7' }}>
+                                                                      {fixResult.detailedInstructions.replaceWith}
+                                                                    </code>
+                                                                  </>
+                                                                )}
+                                                              </BlockStack>
+                                                            </Box>
+                                                          )}
+                                                        </>
+                                                      ) : (
+                                                        /* Fallback to generic instructions if AI didn't provide detailed ones */
+                                                        <ol style={{ paddingLeft: '20px', margin: 0 }}>
+                                                          <li>
+                                                            <Text as="span" variant="bodySm">
+                                                              Go to <strong>Online Store → Themes</strong> in your Shopify admin
+                                                            </Text>
+                                                          </li>
+                                                          <li>
+                                                            <Text as="span" variant="bodySm">
+                                                              Click <strong>Customize</strong> on your active theme
+                                                            </Text>
+                                                          </li>
+                                                          <li>
+                                                            <Text as="span" variant="bodySm">
+                                                              Click <strong>Theme settings → Custom CSS</strong> (or edit theme.liquid)
+                                                            </Text>
+                                                          </li>
+                                                          <li>
+                                                            <Text as="span" variant="bodySm">
+                                                              Paste the CSS code above
+                                                            </Text>
+                                                          </li>
+                                                          <li>
+                                                            <Text as="span" variant="bodySm">
+                                                              Click <strong>Save</strong>
+                                                            </Text>
+                                                          </li>
+                                                        </ol>
+                                                      )}
+
                                                       <Text as="p" variant="bodySm" tone="subdued">
                                                         💡 Tip: We don't auto-inject CSS for security reasons. This keeps your store safe from potential code injection vulnerabilities.
                                                       </Text>

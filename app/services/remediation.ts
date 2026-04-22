@@ -307,6 +307,12 @@ export async function fixViolationWithAI(
   appliedFix?: boolean
   cssCode?: string
   error?: string
+  detailedInstructions?: {
+    steps: string[]
+    themeFile?: string
+    searchFor?: string
+    replaceWith?: string
+  }
 }> {
   try {
     if (!genAI) {
@@ -338,14 +344,21 @@ Analyze this violation and provide:
 3. If it's a code change: the exact corrected HTML/CSS
 4. Priority level (critical/high/medium/low)
 5. WHERE the violation exists (determine from HTML/selector)
+6. DETAILED STEP-BY-STEP INSTRUCTIONS for how to fix it in Shopify
 
 IMPORTANT - Determine the violation location:
 - If HTML contains product-related elements (product cards, titles, descriptions, images): location = "product"
 - If HTML contains page content markers or static page elements: location = "page"
-- If HTML is from theme template (header, footer, navigation, layout): location = "theme"
+- If HTML is from theme template (header, footer, navigation, layout, forms): location = "theme"
 - Extract any product IDs, page IDs from the HTML/selector if present
 
-Focus on solutions that can be implemented via Shopify's Admin API or Theme App Extensions.
+For THEME violations, provide detailed Shopify admin navigation:
+- Exact path in Shopify admin (e.g., "Online Store > Themes > Customize > Theme settings")
+- Which file to edit (e.g., "theme.liquid", "password.liquid", "base.css")
+- Where in the file to make changes (line numbers if possible, or search terms)
+- Specific code to find and replace
+
+Focus on solutions that can be implemented via Shopify's Admin API or manual theme editing.
 
 Format your response as JSON:
 {
@@ -361,6 +374,17 @@ Format your response as JSON:
   "apiDetails": {
     "mutation": "productUpdate | pageUpdate | fileUpdate | etc",
     "field": "descriptionHtml | body | alt | etc"
+  },
+  "detailedInstructions": {
+    "steps": [
+      "Step 1: Navigate to...",
+      "Step 2: Click on...",
+      "Step 3: Find the code...",
+      "Step 4: Replace with..."
+    ],
+    "themeFile": "password.liquid | theme.liquid | base.css | etc",
+    "searchFor": "Code snippet to search for in the file",
+    "replaceWith": "Code snippet to replace it with"
   }
 }`
 
@@ -414,6 +438,7 @@ Format your response as JSON:
         : `${fixData.explanation}\n\nFix: ${fixData.fixDescription}${fixData.correctedCode ? `\n\nCorrected Code:\n${fixData.correctedCode}` : ''}${applyError ? `\n\nNote: ${applyError}` : ''}`,
       appliedFix,
       cssCode: cssCode || undefined,
+      detailedInstructions: fixData.detailedInstructions,
     }
   } catch (error) {
     console.error('[fixViolationWithAI] Error:', error)
