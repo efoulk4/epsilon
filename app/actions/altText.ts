@@ -5,8 +5,8 @@ import { validateImageURL } from '@/app/utils/ssrf-protection'
 import { requireVerifiedShop } from '@/app/utils/auth'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 
-const apiKey = process.env.GEMINI_API_KEY || ''
-const isGeminiConfigured = apiKey && apiKey !== 'your_gemini_api_key_here'
+const apiKey = process.env.GOOGLE_API_KEY || ''
+const isGeminiConfigured = apiKey && apiKey !== 'your_google_gemini_api_key'
 
 export async function generateAltText(
   imageUrl: string
@@ -26,7 +26,7 @@ export async function generateAltText(
   if (!isGeminiConfigured) {
     return {
       success: false,
-      error: 'Gemini API key not configured. Please add GEMINI_API_KEY to .env.local',
+      error: 'Gemini API key not configured. Please add GOOGLE_API_KEY to .env.local',
     }
   }
 
@@ -91,15 +91,3 @@ Provide ONLY the alt text, nothing else.`
   }
 }
 
-export async function saveAltTextToShopify(
-  imageId: string,
-  altText: string
-): Promise<{ success: boolean; error?: string }> {
-  // SECURITY: This function is deprecated
-  // Use fixProductAltText from remediation.ts instead
-  // That function uses shop-specific credentials from the database
-  return {
-    success: false,
-    error: 'This function is deprecated. Use fixProductAltText from remediation service instead.',
-  }
-}

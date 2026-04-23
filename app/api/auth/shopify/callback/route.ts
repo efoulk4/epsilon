@@ -171,10 +171,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const response = NextResponse.redirect(redirectUrl)
-    response.headers.set('ngrok-skip-browser-warning', 'true')
-
-    return response
+    return NextResponse.redirect(redirectUrl)
   } catch (error) {
     console.error('OAuth callback error:', error)
     return NextResponse.json(

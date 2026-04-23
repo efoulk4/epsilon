@@ -2,9 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Page, BlockStack, Tabs } from '@shopify/polaris'
+import { Page, BlockStack, Tabs, Spinner } from '@shopify/polaris'
 import { AuditTab } from './components/AuditTab'
-import { HistoryTab } from './components/HistoryTab'
+import dynamic from 'next/dynamic'
+
+const HistoryTab = dynamic(
+  () => import('./components/HistoryTab').then((m) => m.HistoryTab),
+  { ssr: false, loading: () => <Spinner size="large" /> }
+)
 
 export default function Dashboard() {
   const searchParams = useSearchParams()

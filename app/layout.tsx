@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { PolarisProvider } from './providers/PolarisProvider'
 import { AppBridgeProvider } from './components/providers/AppBridgeProvider'
+import { WebVitals } from './components/WebVitals'
 import { Suspense } from 'react'
 
 export const metadata: Metadata = {
@@ -17,6 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <WebVitals />
         <Suspense fallback={<div>Loading...</div>}>
           <AppBridgeProvider>
             <PolarisProvider>{children}</PolarisProvider>

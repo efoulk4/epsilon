@@ -5,8 +5,13 @@ import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../ac
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
-import { AltTextFixModal } from './AltTextFixModal'
+import dynamic from 'next/dynamic'
 import { fixViolationWithAI } from '../services/remediation'
+
+const AltTextFixModal = dynamic(
+  () => import('./AltTextFixModal').then((m) => m.AltTextFixModal),
+  { ssr: false }
+)
 import { useSearchParams } from 'next/navigation'
 import {
   Card,
@@ -29,6 +34,7 @@ export function AuditTab() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [copyError, setCopyError] = useState<string | null>(null)
   const [shop, setShop] = useState<string | null>(null)
   const [isEmbedded, setIsEmbedded] = useState(false)
   const [expandedImpact, setExpandedImpact] = useState<{
@@ -180,7 +186,7 @@ export function AuditTab() {
         })
       }, 2000)
     } catch (error) {
-      alert('Failed to copy CSS. Please select and copy manually.')
+      setCopyError('Failed to copy CSS. Please select and copy manually.')
     }
   }
 
@@ -201,7 +207,7 @@ export function AuditTab() {
     nodeIndex: number
   ) => {
     if (!shop) {
-      alert('Shop information not available. Fixes only work in embedded mode.')
+      setError('Shop information not available. Fixes only work in embedded mode.')
       return
     }
 
@@ -316,9 +322,23 @@ export function AuditTab() {
         </Card>
       )}
 
+      {/* Scanning progress message */}
+      {loading && (
+        <Banner tone="info">
+          <p>Running accessibility scan... This may take up to 30 seconds.</p>
+        </Banner>
+      )}
+
+      {/* Copy error */}
+      {copyError && (
+        <Banner tone="warning" onDismiss={() => setCopyError(null)}>
+          <p>{copyError}</p>
+        </Banner>
+      )}
+
       {/* Error Display */}
       {error && (
-        <Banner title="Audit Failed" tone="critical">
+        <Banner title="Audit Failed" tone="critical" onDismiss={() => setError(null)}>
           <p>{error}</p>
         </Banner>
       )}

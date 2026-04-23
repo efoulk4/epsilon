@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import {
   Modal,
   BlockStack,
@@ -9,9 +10,8 @@ import {
   Button,
   InlineStack,
   Banner,
-  Spinner,
 } from '@shopify/polaris'
-import { generateAltText, saveAltTextToShopify } from '../actions/altText'
+import { generateAltText } from '../actions/altText'
 
 interface AltTextFixModalProps {
   open: boolean
@@ -27,10 +27,8 @@ export function AltTextFixModal({
   imageHtml,
 }: AltTextFixModalProps) {
   const [altText, setAltText] = useState('')
-  const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
 
   const handleGenerateAltText = async () => {
     setGenerating(true)
@@ -52,61 +50,21 @@ export function AltTextFixModal({
     }
   }
 
-  const handleSaveToShopify = async () => {
-    if (!altText.trim()) {
-      setError('Please enter or generate alt text first')
-      return
-    }
-
-    setLoading(true)
+  const handleClose = () => {
+    setAltText('')
     setError(null)
-
-    try {
-      // Extract image ID from HTML (this is a simplified example)
-      const imageIdMatch = imageHtml.match(/data-image-id="(\d+)"/)
-      const imageId = imageIdMatch ? imageIdMatch[1] : ''
-
-      if (!imageId) {
-        setError('Could not find image ID. This feature requires Shopify integration.')
-        setLoading(false)
-        return
-      }
-
-      const result = await saveAltTextToShopify(imageId, altText)
-
-      if (result.success) {
-        setSuccess(true)
-        setTimeout(() => {
-          onClose()
-          setSuccess(false)
-          setAltText('')
-        }, 2000)
-      } else {
-        setError(result.error || 'Failed to save alt text to Shopify')
-      }
-    } catch (err) {
-      setError('An unexpected error occurred')
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
+    onClose()
   }
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
-      title="Fix Missing Alt Text"
-      primaryAction={{
-        content: 'Save to Shopify',
-        onAction: handleSaveToShopify,
-        loading,
-        disabled: !altText.trim() || success,
-      }}
+      onClose={handleClose}
+      title="Generate Alt Text"
       secondaryActions={[
         {
-          content: 'Cancel',
-          onAction: onClose,
+          content: 'Close',
+          onAction: handleClose,
         },
       ]}
     >
@@ -115,12 +73,6 @@ export function AltTextFixModal({
           {error && (
             <Banner tone="critical" onDismiss={() => setError(null)}>
               {error}
-            </Banner>
-          )}
-
-          {success && (
-            <Banner tone="success">
-              Alt text saved successfully!
             </Banner>
           )}
 
@@ -141,13 +93,18 @@ export function AltTextFixModal({
                 backgroundColor: '#f6f6f7',
               }}
             >
-              <img
+              <Image
                 src={imageUrl}
                 alt="Preview"
+                width={400}
+                height={180}
+                unoptimized
                 style={{
                   maxWidth: '100%',
                   maxHeight: '180px',
                   objectFit: 'contain',
+                  width: 'auto',
+                  height: 'auto',
                 }}
               />
             </div>
@@ -171,7 +128,7 @@ export function AltTextFixModal({
               label=""
               value={altText}
               onChange={setAltText}
-              placeholder="Enter alt text or click 'Generate with AI'"
+              placeholder="Click 'Generate with AI' or enter alt text manually"
               multiline={3}
               autoComplete="off"
               helpText="Describe the image concisely for screen readers (under 125 characters recommended)"
