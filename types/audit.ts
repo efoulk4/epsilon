@@ -13,6 +13,8 @@ export interface AuditViolation {
     pageUrl?: string;
     _imageSrc?: string;
     _genericAlt?: string;
+    _productId?: string;
+    _imageId?: string;
   }[];
 }
 
