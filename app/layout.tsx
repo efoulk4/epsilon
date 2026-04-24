@@ -17,6 +17,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" />
+      </head>
       <body>
         <WebVitals />
         <Suspense fallback={<div>Loading...</div>}>
