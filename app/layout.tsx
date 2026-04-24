@@ -19,7 +19,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         {/* App Bridge must be the first script, synchronous, no async/defer */}
-        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" async={false} defer={false} />
+        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" data-api-key={process.env.NEXT_PUBLIC_SHOPIFY_API_KEY} async={false} defer={false} />
       </head>
       <body>
         <WebVitals />
