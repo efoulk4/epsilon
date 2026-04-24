@@ -44,7 +44,18 @@ export async function getVerifiedShop(explicitToken?: string): Promise<string | 
 
     // SECURITY: Use Shopify's official session token validation
     // This cryptographically verifies the JWT signature using the app secret
-    const sessionToken = await shopify.session.decodeSessionToken(token)
+    let sessionToken: any
+    try {
+      sessionToken = await shopify.session.decodeSessionToken(token)
+    } catch (decodeError) {
+      console.error('[getVerifiedShop] decodeSessionToken failed:', decodeError instanceof Error ? decodeError.message : decodeError)
+      console.error('[getVerifiedShop] Token prefix (first 20 chars):', token.substring(0, 20))
+      console.error('[getVerifiedShop] SHOPIFY_API_KEY set:', !!process.env.SHOPIFY_API_KEY)
+      console.error('[getVerifiedShop] SHOPIFY_API_SECRET set:', !!process.env.SHOPIFY_API_SECRET)
+      return null
+    }
+
+    console.log('[getVerifiedShop] Token decoded. exp:', sessionToken.exp, 'now:', Math.floor(Date.now() / 1000), 'dest:', sessionToken.dest, 'iss:', sessionToken.iss)
 
     // Verify token is not expired
     if (sessionToken.exp * 1000 < Date.now()) {
@@ -56,7 +67,7 @@ export async function getVerifiedShop(explicitToken?: string): Promise<string | 
     const shop = sessionToken.dest.replace('https://', '')
 
     if (!isValidShopDomain(shop)) {
-      console.error('[getVerifiedShop] Invalid shop domain format')
+      console.error('[getVerifiedShop] Invalid shop domain format:', shop)
       return null
     }
 
