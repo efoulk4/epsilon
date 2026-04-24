@@ -289,7 +289,7 @@ async function saveAuditToDatabase(
       .select()
 
     if (error) {
-      console.error('[saveAuditToDatabase] Database error')
+      console.error('[saveAuditToDatabase] Database error:', error.message, error.code, error.details, error.hint)
       return { success: false, error: error.message }
     }
 
@@ -334,7 +334,7 @@ export async function getAuditHistory(
       .order('created_at', { ascending: true })
 
     if (error) {
-      console.error('[getAuditHistory] Database error')
+      console.error('[getAuditHistory] Database error:', error.message, error.code, error.details, error.hint)
       return []
     }
 

@@ -58,15 +58,13 @@ export default function Dashboard() {
     >
       <BlockStack gap="500">
         <Tabs tabs={tabs} selected={selectedTabIndex} onSelect={setSelectedTabIndex}>
-          {/* Keep both tabs mounted so audit results survive a tab switch */}
+          {/* Both tabs stay mounted — display:none preserves state across tab switches */}
           <div style={{ display: selectedTabIndex === 0 ? 'block' : 'none' }}>
             <AuditTab />
           </div>
-          {isEmbedded && (
-            <div style={{ display: selectedTabIndex === 1 ? 'block' : 'none' }}>
-              <HistoryTab shop={shop} />
-            </div>
-          )}
+          <div style={{ display: isEmbedded && selectedTabIndex === 1 ? 'block' : 'none' }}>
+            {isEmbedded && <HistoryTab shop={shop} />}
+          </div>
         </Tabs>
       </BlockStack>
     </Page>
