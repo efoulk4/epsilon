@@ -144,11 +144,17 @@ async function runAccessibilityAudit(
       }
     })
 
-    // Navigate to the URL with timeout
+    // Navigate to the URL with timeout.
+    // Use 'domcontentloaded' rather than 'networkidle' — many stores never reach
+    // networkidle due to analytics, chat widgets, and other persistent connections.
+    // Axe only needs the DOM to be ready, not all network activity to cease.
     await page.goto(url, {
-      waitUntil: 'networkidle',
-      timeout: 30000,
+      waitUntil: 'domcontentloaded',
+      timeout: 60000,
     })
+
+    // Give JS-rendered content a moment to settle after DOM load
+    await page.waitForTimeout(2000)
 
     // Inject axe-core from CDN
     await page.addScriptTag({

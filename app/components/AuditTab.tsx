@@ -321,7 +321,7 @@ export function AuditTab() {
       {/* Scanning progress message */}
       {loading && (
         <Banner tone="info">
-          <p>Running accessibility scan... This may take up to 30 seconds.</p>
+          <p>Running accessibility scan... This may take up to 60 seconds for busy stores.</p>
         </Banner>
       )}
 
