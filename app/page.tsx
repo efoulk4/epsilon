@@ -14,6 +14,12 @@ const HistoryTab = dynamic(
 export default function Dashboard() {
   const { isEmbedded, shop } = useIsEmbedded()
   const [selectedTabIndex, setSelectedTabIndex] = useState(0)
+  const [historyVisited, setHistoryVisited] = useState(false)
+
+  function handleTabSelect(index: number) {
+    if (index === 1) setHistoryVisited(true)
+    setSelectedTabIndex(index)
+  }
 
   // Only show History tab when embedded
   const tabs = isEmbedded
@@ -40,13 +46,13 @@ export default function Dashboard() {
       subtitle="Zero-Footprint WCAG 2.1 Compliance Checker"
     >
       <BlockStack gap="500">
-        <Tabs tabs={tabs} selected={selectedTabIndex} onSelect={setSelectedTabIndex}>
-          {/* Both tabs stay mounted — display:none preserves state across tab switches */}
+        <Tabs tabs={tabs} selected={selectedTabIndex} onSelect={handleTabSelect}>
+          {/* Both tabs stay mounted once visited — display:none preserves state across tab switches */}
           <div style={{ display: selectedTabIndex === 0 ? 'block' : 'none' }}>
             <AuditTab />
           </div>
           <div style={{ display: isEmbedded && selectedTabIndex === 1 ? 'block' : 'none' }}>
-            {isEmbedded && <HistoryTab shop={shop} />}
+            {isEmbedded && historyVisited && <HistoryTab shop={shop} />}
           </div>
         </Tabs>
       </BlockStack>

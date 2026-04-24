@@ -4,6 +4,7 @@ import { PolarisProvider } from './providers/PolarisProvider'
 import { AppBridgeProvider } from './components/providers/AppBridgeProvider'
 import { WebVitals } from './components/WebVitals'
 import { Suspense } from 'react'
+import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'Accessibility Auditor - Zero-Footprint WCAG Checker',
@@ -18,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" />
+        <Script src="https://cdn.shopify.com/shopifycloud/app-bridge.js" strategy="beforeInteractive" />
       </head>
       <body>
         <WebVitals />
