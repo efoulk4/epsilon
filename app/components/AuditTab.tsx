@@ -66,6 +66,19 @@ export function AuditTab() {
   }>>(new Map())
   const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
   const [urlInput, setUrlInput] = useState('')
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
+
+  const toggleExpandedNodes = useCallback((violationId: string) => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev)
+      if (next.has(violationId)) {
+        next.delete(violationId)
+      } else {
+        next.add(violationId)
+      }
+      return next
+    })
+  }, [])
 
   const handleAuditMyStore = async () => {
     setLoading(true)
@@ -469,65 +482,89 @@ export function AuditTab() {
                                     {violation.nodes.length}
                                   </Text>
 
-                                  {violation.nodes.slice(0, 3).map((node, nodeIndex) => {
-                                    const fixKey = `${violation.id}-${nodeIndex}`
-                                    const isFixing = fixingViolations.has(fixKey)
-                                    const fixResult = fixResults.get(fixKey)
+                                  {(() => {
+                                    const showAll = expandedNodes.has(violation.id)
+                                    const visibleNodes = showAll ? violation.nodes : violation.nodes.slice(0, 3)
+                                    const hiddenCount = violation.nodes.length - 3
 
                                     return (
-                                    <Box
-                                      key={nodeIndex}
-                                      background="bg-surface-secondary"
-                                      padding="300"
-                                      borderRadius="200"
-                                    >
-                                      <BlockStack gap="200">
-                                        <code
-                                          style={{
-                                            fontSize: '12px',
-                                            wordBreak: 'break-all',
-                                          }}
-                                        >
-                                          {node.html}
-                                        </code>
-                                        <Text as="p" variant="bodySm" tone="subdued">
-                                          Selector: {node.target.join(' > ')}
-                                        </Text>
+                                      <>
+                                        {visibleNodes.map((node, nodeIndex) => {
+                                          const fixKey = `${violation.id}-${nodeIndex}`
+                                          const isFixing = fixingViolations.has(fixKey)
+                                          const fixResult = fixResults.get(fixKey)
+                                          const isImageAltViolation =
+                                            violation.id === 'image-alt' || violation.id === 'generic-alt-text'
+                                          const imageSrc =
+                                            node._imageSrc ||
+                                            (isImageAltViolation ? extractImageUrl(node.html) ?? undefined : undefined)
 
-                                        {/* Generic alt text: open the AI vision modal */}
-                                        {isEmbedded && violation.id === 'generic-alt-text' && node._imageSrc && (
-                                          <Button
-                                            size="slim"
-                                            tone="success"
-                                            onClick={() => handleFixImage(node.html, node._imageSrc!, node._genericAlt)}
-                                          >
-                                            Fix Alt Text with AI
-                                          </Button>
-                                        )}
+                                          return (
+                                            <Box
+                                              key={nodeIndex}
+                                              background="bg-surface-secondary"
+                                              padding="300"
+                                              borderRadius="200"
+                                            >
+                                              <BlockStack gap="200">
+                                                <code
+                                                  style={{
+                                                    fontSize: '12px',
+                                                    wordBreak: 'break-all',
+                                                  }}
+                                                >
+                                                  {node.html}
+                                                </code>
+                                                <Text as="p" variant="bodySm" tone="subdued">
+                                                  Selector: {node.target.join(' > ')}
+                                                </Text>
 
-                                        {/* All other violations: generic AI fix */}
-                                        {isEmbedded && violation.id !== 'generic-alt-text' && (
-                                          <Button
-                                            size="slim"
-                                            loading={isFixing}
-                                            onClick={() => handleFixViolation(violation, nodeIndex)}
-                                            tone="success"
-                                          >
-                                            {isFixing ? 'Analyzing with AI...' : 'Fix with AI'}
-                                          </Button>
-                                        )}
+                                                {/* Image alt violations: open the AI vision modal */}
+                                                {isImageAltViolation && imageSrc && (
+                                                  isEmbedded ? (
+                                                    <Button
+                                                      size="slim"
+                                                      tone="success"
+                                                      onClick={() => handleFixImage(node.html, imageSrc, node._genericAlt)}
+                                                    >
+                                                      Fix Alt Text with AI
+                                                    </Button>
+                                                  ) : (
+                                                    <Text as="p" variant="bodySm" tone="subdued">
+                                                      Install the Shopify app to fix with AI
+                                                    </Text>
+                                                  )
+                                                )}
 
-                                        {/* Show fix result */}
-                                        {fixResult && (
-                                          <Banner
-                                            tone={
-                                              fixResult.success && fixResult.appliedFix
-                                                ? 'success'
-                                                : fixResult.success
-                                                  ? 'info'
-                                                  : 'critical'
-                                            }
-                                          >
+                                                {/* All other violations: generic AI fix */}
+                                                {!isImageAltViolation && (
+                                                  isEmbedded ? (
+                                                    <Button
+                                                      size="slim"
+                                                      loading={isFixing}
+                                                      onClick={() => handleFixViolation(violation, nodeIndex)}
+                                                      tone="success"
+                                                    >
+                                                      {isFixing ? 'Analyzing with AI...' : 'Fix with AI'}
+                                                    </Button>
+                                                  ) : (
+                                                    <Text as="p" variant="bodySm" tone="subdued">
+                                                      Install the Shopify app to fix with AI
+                                                    </Text>
+                                                  )
+                                                )}
+
+                                                {/* Show fix result */}
+                                                {fixResult && (
+                                                  <Banner
+                                                    tone={
+                                                      fixResult.success && fixResult.appliedFix
+                                                        ? 'success'
+                                                        : fixResult.success
+                                                          ? 'info'
+                                                          : 'critical'
+                                                    }
+                                                  >
                                             <BlockStack gap="300">
                                               <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>
                                                 {fixResult.message}
@@ -690,24 +727,39 @@ export function AuditTab() {
                                                 </BlockStack>
                                               )}
 
-                                              {/* Show success message if fix was applied automatically */}
-                                              {fixResult.appliedFix && (
-                                                <Text as="p" variant="bodyMd" fontWeight="semibold" tone="success">
-                                                  🎉 No manual action needed - the fix has been applied to your store!
-                                                </Text>
-                                              )}
-                                            </BlockStack>
-                                          </Banner>
-                                        )}
-                                      </BlockStack>
-                                    </Box>
-                                  )})}
+                                                              {/* Show success message if fix was applied automatically */}
+                                                              {fixResult.appliedFix && (
+                                                                <Text as="p" variant="bodyMd" fontWeight="semibold" tone="success">
+                                                                  Fix has been applied to your store!
+                                                                </Text>
+                                                              )}
+                                                            </BlockStack>
+                                                          </Banner>
+                                                        )}
+                                                      </BlockStack>
+                                                    </Box>
+                                                  )
+                                                })}
 
-                                  {violation.nodes.length > 3 && (
-                                    <Text as="p" variant="bodyMd" tone="subdued">
-                                      + {violation.nodes.length - 3} more affected elements
-                                    </Text>
-                                  )}
+                                                {/* Show all / collapse toggle */}
+                                                {hiddenCount > 0 && (
+                                                  <button
+                                                    onClick={() => toggleExpandedNodes(violation.id)}
+                                                    style={{
+                                                      all: 'unset',
+                                                      cursor: 'pointer',
+                                                      color: '#2C6ECB',
+                                                      fontSize: '14px',
+                                                    }}
+                                                  >
+                                                    {showAll
+                                                      ? 'Show fewer elements'
+                                                      : `+ ${hiddenCount} more affected element${hiddenCount === 1 ? '' : 's'} — show all`}
+                                                  </button>
+                                                )}
+                                              </>
+                                            )
+                                          })()}
 
                                   <Link
                                     url={violation.helpUrl}
