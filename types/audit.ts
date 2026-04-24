@@ -10,6 +10,7 @@ export interface AuditViolation {
     html: string;
     target: string[];
     failureSummary: string;
+    pageUrl?: string;
     _imageSrc?: string;
     _genericAlt?: string;
   }[];
@@ -26,6 +27,7 @@ export interface AuditResult {
     moderate: number;
     minor: number;
   };
+  pagesScanned?: string[];
 }
 
 export interface AuditError {

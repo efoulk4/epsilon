@@ -354,11 +354,24 @@ export function AuditTab() {
                 </Text>
               </InlineStack>
 
-              <InlineStack gap="200" blockAlign="center">
-                <Link url={result.url} target="_blank" removeUnderline>
-                  {result.url}
-                </Link>
-              </InlineStack>
+              {result.pagesScanned && result.pagesScanned.length > 1 ? (
+                <BlockStack gap="100">
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    {result.pagesScanned.length} pages scanned:
+                  </Text>
+                  {result.pagesScanned.map((p) => (
+                    <Link key={p} url={p} target="_blank" removeUnderline>
+                      <Text as="span" variant="bodySm">{p}</Text>
+                    </Link>
+                  ))}
+                </BlockStack>
+              ) : (
+                <InlineStack gap="200" blockAlign="center">
+                  <Link url={result.url} target="_blank" removeUnderline>
+                    {result.url}
+                  </Link>
+                </InlineStack>
+              )}
 
               <InlineGrid columns={['oneThird', 'twoThirds']} gap="400">
                 {/* Health Score Gauge */}
@@ -518,6 +531,11 @@ export function AuditTab() {
                                                 <Text as="p" variant="bodySm" tone="subdued">
                                                   Selector: {node.target.join(' > ')}
                                                 </Text>
+                                                {node.pageUrl && (
+                                                  <Text as="p" variant="bodySm" tone="subdued">
+                                                    Found on: <Link url={node.pageUrl} target="_blank" removeUnderline>{node.pageUrl}</Link>
+                                                  </Text>
+                                                )}
 
                                                 {/* Image alt violations: open the AI vision modal */}
                                                 {isImageAltViolation && imageSrc && (

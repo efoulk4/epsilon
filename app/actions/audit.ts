@@ -84,6 +84,135 @@ export async function runAccessibilityAuditForURL(url: string): Promise<AuditRes
   return runAccessibilityAudit(normalized)
 }
 
+const GENERIC_ALT_PATTERNS = [
+  /^image$/i, /^photo$/i, /^picture$/i, /^img$/i, /^graphic$/i,
+  /^icon$/i, /^logo$/i, /^banner$/i, /^thumbnail$/i, /^placeholder$/i,
+  /^untitled$/i, /^image \d+$/i, /^photo \d+$/i, /^product image$/i,
+  /^product photo$/i, /^product picture$/i, /^shop image$/i,
+  /^store image$/i, /^\d+$/i, /^dsc\d+$/i, /^img\d+$/i,
+  /^screenshot$/i, /^image \d+ of \d+$/i,
+]
+
+/**
+ * Scan a single already-navigated Playwright page with Axe and generic alt detection.
+ * Returns raw violation objects tagged with pageUrl.
+ */
+async function scanSinglePage(page: any, pageUrl: string): Promise<any[]> {
+  // Inject axe-core from CDN
+  await page.addScriptTag({
+    url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.0/axe.min.js',
+  })
+  await page.waitForFunction(() => typeof (window as any).axe !== 'undefined')
+
+  const axeResults = await page.evaluate(() => {
+    return new Promise<any>((resolve) => {
+      // @ts-ignore
+      window.axe.run(
+        { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } },
+        (err: Error, results: any) => { if (err) throw err; resolve(results) }
+      )
+    })
+  }) as any
+
+  const violations = axeResults.violations
+
+  // Tag every node with the page it came from
+  violations.forEach((v: any) => {
+    v.nodes.forEach((n: any) => { n._pageUrl = pageUrl })
+  })
+
+  // Detect generic alt text (Axe only catches missing alt, not bad alt)
+  const genericAltImages = await page.evaluate(() => {
+    const PATTERNS = [
+      /^image$/i, /^photo$/i, /^picture$/i, /^img$/i, /^graphic$/i,
+      /^icon$/i, /^logo$/i, /^banner$/i, /^thumbnail$/i, /^placeholder$/i,
+      /^untitled$/i, /^image \d+$/i, /^photo \d+$/i, /^product image$/i,
+      /^product photo$/i, /^product picture$/i, /^shop image$/i,
+      /^store image$/i, /^\d+$/i, /^dsc\d+$/i, /^img\d+$/i,
+      /^screenshot$/i, /^image \d+ of \d+$/i,
+    ]
+    const results: { html: string; target: string[]; alt: string; src: string }[] = []
+    document.querySelectorAll('img[alt]').forEach((img, index) => {
+      const alt = (img as HTMLImageElement).alt.trim()
+      const src = (img as HTMLImageElement).src || ''
+      if (!alt) return
+      if (!PATTERNS.some((p) => p.test(alt))) return
+      const id = img.id ? `#${img.id}` : ''
+      const classes = img.className ? `.${img.className.trim().split(/\s+/).join('.')}` : ''
+      results.push({
+        html: img.outerHTML.slice(0, 300),
+        target: [id || classes || `img:nth-of-type(${index + 1})`],
+        alt,
+        src,
+      })
+    })
+    return results
+  })
+
+  if (genericAltImages.length > 0) {
+    violations.push({
+      id: 'generic-alt-text',
+      impact: 'serious',
+      description: 'Images have generic or non-descriptive alt text that does not convey the image content to screen reader users.',
+      help: 'Images must have descriptive alt text',
+      helpUrl: 'https://www.w3.org/WAI/tutorials/images/decorative/',
+      nodes: genericAltImages.map((img: any) => ({
+        html: img.html,
+        target: img.target,
+        failureSummary: `Image alt text is generic ("${img.alt}"). Replace with a description of what the image shows.`,
+        _imageSrc: img.src,
+        _genericAlt: img.alt,
+        _pageUrl: pageUrl,
+      })),
+    })
+  }
+
+  return violations
+}
+
+/**
+ * Navigate to a URL within an existing browser context, applying SSRF protection
+ * on every request including redirects.
+ */
+async function navigatePage(context: any, url: string): Promise<any> {
+  const page = await context.newPage()
+
+  await page.route('**/*', async (route: any) => {
+    const { validateURL } = await import('@/app/utils/ssrf-protection')
+    const validation = await validateURL(route.request().url())
+    if (!validation.allowed) {
+      await route.abort('blockedbyclient')
+    } else {
+      await route.continue()
+    }
+  })
+
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await page.waitForTimeout(2000)
+  return page
+}
+
+/**
+ * Merge per-page violation arrays into a single deduplicated list.
+ * Violations with the same ID are merged — their nodes are combined.
+ * Each node carries a pageUrl so the UI can show where it was found.
+ */
+function mergeViolations(allViolations: any[][]): any[] {
+  const map = new Map<string, any>()
+
+  for (const pageViolations of allViolations) {
+    for (const violation of pageViolations) {
+      if (map.has(violation.id)) {
+        map.get(violation.id).nodes.push(...violation.nodes)
+      } else {
+        map.set(violation.id, { ...violation, nodes: [...violation.nodes] })
+      }
+    }
+  }
+
+  return Array.from(map.values())
+}
+
 /**
  * SECURITY CRITICAL: Internal-only function - NOT exported to client
  * This function launches expensive Chromium browser instances
@@ -96,224 +225,118 @@ async function runAccessibilityAudit(
   let browser = null
 
   try {
-    // SECURITY: Validate URL to prevent SSRF
+    // SECURITY: Validate root URL to prevent SSRF
     const { validateURL } = await import('@/app/utils/ssrf-protection')
-    const validation = await validateURL(url)
-
-    if (!validation.allowed) {
-      return {
-        error: 'URL validation failed',
-        details: validation.error || 'Invalid or blocked URL',
-      }
+    const rootValidation = await validateURL(url)
+    if (!rootValidation.allowed) {
+      return { error: 'URL validation failed', details: rootValidation.error || 'Invalid or blocked URL' }
     }
 
-    // Launch headless Chromium browser
-    // Use serverless-optimized chromium in production
     const isProduction = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production'
 
     browser = await chromium.launch({
-      args: isProduction ? chromiumPkg.args : [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-      ],
+      args: isProduction ? chromiumPkg.args : ['--no-sandbox', '--disable-setuid-sandbox'],
       executablePath: isProduction ? await chromiumPkg.executablePath() : undefined,
       headless: true,
     })
 
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 },
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     })
 
-    const page = await context.newPage()
+    // --- Discover pages to scan ---
+    // Always scan homepage. Then find a product and collection page from the DOM.
+    const origin = new URL(url).origin
+    const urlsToScan: string[] = [url]
 
-    // SECURITY: Intercept requests to prevent SSRF via redirects
-    await page.route('**/*', async (route) => {
-      const requestUrl = route.request().url()
+    // Load the homepage to discover product/collection links
+    const homePage = await navigatePage(context, url)
 
-      // Validate every request (including redirects)
-      const { validateURL } = await import('@/app/utils/ssrf-protection')
-      const validation = await validateURL(requestUrl)
-
-      if (!validation.allowed) {
-        console.error('[SSRF Protection] Blocked request to:', requestUrl)
-        await route.abort('blockedbyclient')
-      } else {
-        await route.continue()
-      }
+    // Find a product page link
+    const productHref = await homePage.evaluate(() => {
+      const a = document.querySelector('a[href*="/products/"]') as HTMLAnchorElement | null
+      return a?.href || null
     })
-
-    // Navigate to the URL with timeout.
-    // Use 'domcontentloaded' rather than 'networkidle' — many stores never reach
-    // networkidle due to analytics, chat widgets, and other persistent connections.
-    // Axe only needs the DOM to be ready, not all network activity to cease.
-    await page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60000,
-    })
-
-    // Give JS-rendered content a moment to settle after DOM load
-    await page.waitForTimeout(2000)
-
-    // Inject axe-core from CDN
-    await page.addScriptTag({
-      url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.0/axe.min.js',
-    })
-
-    // Wait for axe to be available
-    await page.waitForFunction(() => typeof (window as any).axe !== 'undefined')
-
-    // Run Axe accessibility scan targeting WCAG 2.1 Level A and AA
-    const axeResults = await page.evaluate(() => {
-      return new Promise<any>((resolve) => {
-        // @ts-ignore - axe is injected into the page
-        window.axe.run(
-          {
-            runOnly: {
-              type: 'tag',
-              values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'],
-            },
-          },
-          (err: Error, results: any) => {
-            if (err) throw err
-            resolve(results)
-          }
-        )
-      })
-    }) as any
-
-    const violations = axeResults.violations
-
-    // Detect images with generic/non-descriptive alt text
-    // Axe only flags missing alt text — it doesn't catch "product image", "photo", etc.
-    const genericAltImages = await page.evaluate(() => {
-      const GENERIC_PATTERNS = [
-        /^image$/i,
-        /^photo$/i,
-        /^picture$/i,
-        /^img$/i,
-        /^graphic$/i,
-        /^icon$/i,
-        /^logo$/i,
-        /^banner$/i,
-        /^thumbnail$/i,
-        /^placeholder$/i,
-        /^untitled$/i,
-        /^image \d+$/i,
-        /^photo \d+$/i,
-        /^product image$/i,
-        /^product photo$/i,
-        /^product picture$/i,
-        /^shop image$/i,
-        /^store image$/i,
-        /^\d+$/,
-        /^dsc\d+$/i,
-        /^img\d+$/i,
-        /^screenshot$/i,
-        /^image \d+ of \d+$/i,
-      ]
-
-      const results: { html: string; target: string[]; alt: string; src: string }[] = []
-      const imgs = document.querySelectorAll('img[alt]')
-
-      imgs.forEach((img, index) => {
-        const alt = (img as HTMLImageElement).alt.trim()
-        const src = (img as HTMLImageElement).src || ''
-
-        if (!alt) return // Axe already catches missing alt
-
-        const isGeneric = GENERIC_PATTERNS.some((pattern) => pattern.test(alt))
-        if (!isGeneric) return
-
-        // Build a CSS selector for this element
-        const id = img.id ? `#${img.id}` : ''
-        const classes = img.className ? `.${img.className.trim().split(/\s+/).join('.')}` : ''
-        const selector = id || classes || `img:nth-of-type(${index + 1})`
-
-        results.push({
-          html: img.outerHTML.slice(0, 300),
-          target: [selector],
-          alt,
-          src,
-        })
-      })
-
-      return results
-    })
-
-    // Inject generic alt text findings as a synthetic violation
-    if (genericAltImages.length > 0) {
-      violations.push({
-        id: 'generic-alt-text',
-        impact: 'serious',
-        description: 'Images have generic or non-descriptive alt text that does not convey the image content to screen reader users.',
-        help: 'Images must have descriptive alt text',
-        helpUrl: 'https://www.w3.org/WAI/tutorials/images/decorative/',
-        nodes: genericAltImages.map((img) => ({
-          html: img.html,
-          target: img.target,
-          failureSummary: `Fix any of the following: Image alt text is generic ("${img.alt}"). Replace with a description of what the image shows.`,
-          // Carry src through for AI generation — stripped later when saving to DB
-          _imageSrc: img.src,
-          _genericAlt: img.alt,
-        })),
-      })
+    if (productHref) {
+      try {
+        const productUrl = new URL(productHref, origin).href
+        const { validateURL: v } = await import('@/app/utils/ssrf-protection')
+        if ((await v(productUrl)).allowed && !urlsToScan.includes(productUrl)) {
+          urlsToScan.push(productUrl)
+        }
+      } catch {}
     }
+
+    // Always try /collections/all
+    const collectionsUrl = `${origin}/collections/all`
+    try {
+      const { validateURL: v } = await import('@/app/utils/ssrf-protection')
+      if ((await v(collectionsUrl)).allowed) {
+        urlsToScan.push(collectionsUrl)
+      }
+    } catch {}
+
+    console.log(`[runAccessibilityAudit] Scanning ${urlsToScan.length} pages:`, urlsToScan)
+
+    // --- Scan each page ---
+    const allViolations: any[][] = []
+
+    // Scan the homepage we already loaded
+    allViolations.push(await scanSinglePage(homePage, url))
+    await homePage.close()
+
+    // Scan additional pages
+    for (const pageUrl of urlsToScan.slice(1)) {
+      try {
+        const page = await navigatePage(context, pageUrl)
+        allViolations.push(await scanSinglePage(page, pageUrl))
+        await page.close()
+      } catch (err) {
+        console.error(`[runAccessibilityAudit] Failed to scan ${pageUrl}:`, err instanceof Error ? err.message : err)
+      }
+    }
+
+    // --- Merge and deduplicate ---
+    const violations = mergeViolations(allViolations)
 
     // Count violations by impact level
-    const violationsByImpact = {
-      critical: 0,
-      serious: 0,
-      moderate: 0,
-      minor: 0,
-    }
-
+    const violationsByImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }
     violations.forEach((violation: any) => {
       const impact = violation.impact as ImpactLevel
-      if (impact && violationsByImpact[impact] !== undefined) {
-        violationsByImpact[impact]++
-      }
+      if (impact && violationsByImpact[impact] !== undefined) violationsByImpact[impact]++
     })
 
-    // Transform violations to match our type structure
-    const transformedViolations = violations.map((violation: any) => ({
-      id: violation.id,
-      impact: (violation.impact || 'minor') as ImpactLevel,
-      description: violation.description,
-      help: violation.help,
-      helpUrl: violation.helpUrl,
-      nodes: violation.nodes.map((node: any) => ({
-        html: node.html,
-        target: node.target,
-        failureSummary: node.failureSummary || 'No summary available',
-        ...(node._imageSrc ? { _imageSrc: node._imageSrc } : {}),
-        ...(node._genericAlt ? { _genericAlt: node._genericAlt } : {}),
-      })),
-    }))
+    // Transform to our type — carry pageUrl through on each node
+    const impactOrder: Record<ImpactLevel, number> = { critical: 0, serious: 1, moderate: 2, minor: 3 }
 
-    // Sort violations by impact (critical first)
-    const impactOrder: Record<ImpactLevel, number> = {
-      critical: 0,
-      serious: 1,
-      moderate: 2,
-      minor: 3,
-    }
+    const transformedViolations = violations
+      .map((violation: any) => ({
+        id: violation.id,
+        impact: (violation.impact || 'minor') as ImpactLevel,
+        description: violation.description,
+        help: violation.help,
+        helpUrl: violation.helpUrl,
+        nodes: violation.nodes.map((node: any) => ({
+          html: node.html,
+          target: node.target,
+          failureSummary: node.failureSummary || 'No summary available',
+          ...(node._pageUrl ? { pageUrl: node._pageUrl } : {}),
+          ...(node._imageSrc ? { _imageSrc: node._imageSrc } : {}),
+          ...(node._genericAlt ? { _genericAlt: node._genericAlt } : {}),
+        })),
+      }))
+      .sort((a: any, b: any) => impactOrder[a.impact as ImpactLevel] - impactOrder[b.impact as ImpactLevel])
 
-    transformedViolations.sort(
-      (a: any, b: any) => impactOrder[a.impact as ImpactLevel] - impactOrder[b.impact as ImpactLevel]
-    )
-
-    // Build the audit result
     const result: AuditResult = {
       url,
       timestamp: new Date().toISOString(),
       totalViolations: violations.length,
       violations: transformedViolations,
       violationsByImpact,
+      pagesScanned: urlsToScan,
     }
 
-    // SECURITY: Auto-save with tenant binding if shop is provided
     if (shop) {
       await saveAuditToDatabase(result, shop)
     }
@@ -321,22 +344,11 @@ async function runAccessibilityAudit(
     return result
   } catch (error) {
     console.error('Audit error:', error)
-
-    if (error instanceof Error) {
-      return {
-        error: 'Audit failed',
-        details: error.message,
-      }
-    }
-
-    return {
-      error: 'Unknown error occurred during audit',
-    }
+    return error instanceof Error
+      ? { error: 'Audit failed', details: error.message }
+      : { error: 'Unknown error occurred during audit' }
   } finally {
-    // CRITICAL: Always close the browser to prevent memory leaks
-    if (browser) {
-      await browser.close()
-    }
+    if (browser) await browser.close()
   }
 }
 
