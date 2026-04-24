@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { useIdToken } from '../hooks/useIdToken'
+import { useIsEmbedded } from '../hooks/useIsEmbedded'
 import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../actions/audit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
@@ -13,7 +14,6 @@ const AltTextFixModal = dynamic(
   () => import('./AltTextFixModal').then((m) => m.AltTextFixModal),
   { ssr: false }
 )
-import { useSearchParams } from 'next/navigation'
 import {
   Card,
   Button,
@@ -31,14 +31,12 @@ import {
 import { StoreIcon } from '@shopify/polaris-icons'
 
 export function AuditTab() {
-  const searchParams = useSearchParams()
+  const { isEmbedded, shop } = useIsEmbedded()
   const getIdToken = useIdToken()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
-  const [shop, setShop] = useState<string | null>(null)
-  const [isEmbedded, setIsEmbedded] = useState(false)
   const [expandedImpact, setExpandedImpact] = useState<{
     [key in ImpactLevel]?: boolean
   }>({
@@ -67,23 +65,6 @@ export function AuditTab() {
   }>>(new Map())
   const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
   const [urlInput, setUrlInput] = useState('')
-
-  // Detect if running in Shopify embedded context
-  useEffect(() => {
-    const shopParam = searchParams.get('shop')
-    const hostParam = searchParams.get('host')
-
-    if (shopParam) {
-      setShop(shopParam)
-      setIsEmbedded(true)
-    } else if (typeof window !== 'undefined') {
-      const storedShop = sessionStorage.getItem('shopify_shop')
-      if (storedShop) {
-        setShop(storedShop)
-        setIsEmbedded(true)
-      }
-    }
-  }, [searchParams])
 
   const handleAuditMyStore = async () => {
     setLoading(true)

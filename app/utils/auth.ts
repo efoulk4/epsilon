@@ -5,16 +5,18 @@ import { shopifyApi, ApiVersion, Session } from '@shopify/shopify-api'
 import '@shopify/shopify-api/adapters/node'
 import { isValidShopDomain } from './validation'
 
-// Initialize Shopify API for session token validation
-const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY!,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET!,
-  scopes: process.env.SHOPIFY_SCOPES?.split(',') || ['read_products', 'write_products'],
-  hostName: process.env.SHOPIFY_APP_URL!.replace(/https?:\/\//, ''),
-  hostScheme: 'https',
-  apiVersion: ApiVersion.October24,
-  isEmbeddedApp: true,
-})
+function getShopify() {
+  return shopifyApi({
+    apiKey: process.env.SHOPIFY_API_KEY!,
+    apiSecretKey: process.env.SHOPIFY_API_SECRET!,
+    scopes: process.env.SHOPIFY_SCOPES?.split(',') || ['read_products', 'write_products'],
+    hostName: process.env.SHOPIFY_APP_URL!.replace(/https?:\/\//, ''),
+    hostScheme: 'https',
+    apiVersion: ApiVersion.October24,
+    isEmbeddedApp: true,
+  })
+}
+
 
 /**
  * SECURITY CRITICAL: Extract and cryptographically verify shop from Shopify's signed session token
@@ -46,12 +48,9 @@ export async function getVerifiedShop(explicitToken?: string): Promise<string | 
     // This cryptographically verifies the JWT signature using the app secret
     let sessionToken: any
     try {
-      sessionToken = await shopify.session.decodeSessionToken(token)
+      sessionToken = await getShopify().session.decodeSessionToken(token)
     } catch (decodeError) {
       console.error('[getVerifiedShop] decodeSessionToken failed:', decodeError instanceof Error ? decodeError.message : decodeError)
-      console.error('[getVerifiedShop] Token prefix (first 20 chars):', token.substring(0, 20))
-      console.error('[getVerifiedShop] SHOPIFY_API_KEY set:', !!process.env.SHOPIFY_API_KEY)
-      console.error('[getVerifiedShop] SHOPIFY_API_SECRET set:', !!process.env.SHOPIFY_API_SECRET)
       return null
     }
 

@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState } from 'react'
 import { Page, BlockStack, Tabs, Spinner } from '@shopify/polaris'
 import { AuditTab } from './components/AuditTab'
+import { useIsEmbedded } from './hooks/useIsEmbedded'
 import dynamic from 'next/dynamic'
 
 const HistoryTab = dynamic(
@@ -12,25 +12,8 @@ const HistoryTab = dynamic(
 )
 
 export default function Dashboard() {
-  const searchParams = useSearchParams()
+  const { isEmbedded, shop } = useIsEmbedded()
   const [selectedTabIndex, setSelectedTabIndex] = useState(0)
-  const [isEmbedded, setIsEmbedded] = useState(false)
-  const [shop, setShop] = useState<string | null>(null)
-
-  // Detect if running in Shopify embedded context
-  useEffect(() => {
-    const shopParam = searchParams.get('shop')
-    if (shopParam) {
-      setShop(shopParam)
-      setIsEmbedded(true)
-    } else if (typeof window !== 'undefined') {
-      const storedShop = sessionStorage.getItem('shopify_shop')
-      if (storedShop) {
-        setShop(storedShop)
-        setIsEmbedded(true)
-      }
-    }
-  }, [searchParams])
 
   // Only show History tab when embedded
   const tabs = isEmbedded

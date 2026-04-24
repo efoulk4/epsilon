@@ -5,15 +5,6 @@ import crypto from 'crypto'
  * Uses AES-256-GCM for authenticated encryption
  */
 
-// Fail loudly at module load time rather than silently mid-request.
-// This surfaces misconfiguration immediately on startup / first import.
-if (typeof process !== 'undefined' && !process.env.ENCRYPTION_KEY) {
-  throw new Error(
-    'ENCRYPTION_KEY environment variable is required. ' +
-    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"'
-  )
-}
-
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16 // For GCM mode
 const AUTH_TAG_LENGTH = 16
@@ -27,19 +18,18 @@ function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY
 
   if (!key) {
-    throw new Error('ENCRYPTION_KEY environment variable is required for token encryption')
+    throw new Error(
+      'ENCRYPTION_KEY environment variable is required. ' +
+      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'base64\'))"'
+    )
   }
 
   // Key should be base64-encoded 256-bit key
-  try {
-    const keyBuffer = Buffer.from(key, 'base64')
-    if (keyBuffer.length !== KEY_LENGTH) {
-      throw new Error(`ENCRYPTION_KEY must be ${KEY_LENGTH} bytes (256 bits) when decoded`)
-    }
-    return keyBuffer
-  } catch (error) {
-    throw new Error('ENCRYPTION_KEY must be a valid base64-encoded 256-bit key')
+  const keyBuffer = Buffer.from(key, 'base64')
+  if (keyBuffer.length !== KEY_LENGTH) {
+    throw new Error(`ENCRYPTION_KEY must be ${KEY_LENGTH} bytes (256 bits) when decoded`)
   }
+  return keyBuffer
 }
 
 /**
@@ -47,10 +37,12 @@ function getEncryptionKey(): Buffer {
  * Returns base64-encoded ciphertext with IV and auth tag
  */
 export function encrypt(plaintext: string): string {
-  try {
-    const key = getEncryptionKey()
-    const iv = crypto.randomBytes(IV_LENGTH)
+  // Let errors from getEncryptionKey() (missing/invalid key) propagate directly
+  // so callers and tests see the specific message.
+  const key = getEncryptionKey()
 
+  try {
+    const iv = crypto.randomBytes(IV_LENGTH)
     const cipher = crypto.createCipheriv(ALGORITHM, key, iv)
 
     let encrypted = cipher.update(plaintext, 'utf8', 'base64')
