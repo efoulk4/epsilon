@@ -214,6 +214,75 @@ function mergeViolations(allViolations: any[][]): any[] {
 }
 
 /**
+ * Parse a Shopify sitemap index and return one product URL and one collection URL.
+ * Shopify always generates /sitemap.xml with child sitemaps named by type.
+ * We filter to root-locale sitemaps only (no /xx/ locale prefix) to avoid duplicates.
+ */
+async function discoverPagesFromSitemap(origin: string): Promise<{
+  productUrl: string | null
+  collectionUrl: string | null
+}> {
+  const result = { productUrl: null as string | null, collectionUrl: null as string | null }
+
+  try {
+    const sitemapRes = await fetch(`${origin}/sitemap.xml`, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!sitemapRes.ok) return result
+
+    const sitemapXml = await sitemapRes.text()
+
+    // Extract all <loc> entries from the sitemap index
+    const locMatches = [...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g)]
+    const subSitemapUrls = locMatches.map((m) => m[1].trim())
+
+    // Filter to root-locale sitemaps only — locale sitemaps look like /es/sitemap_products_1.xml
+    // Root sitemaps look like /sitemap_products_1.xml (path starts directly with /sitemap_)
+    const rootSitemaps = subSitemapUrls.filter((u) => {
+      try {
+        const path = new URL(u).pathname
+        return path.startsWith('/sitemap_')
+      } catch {
+        return false
+      }
+    })
+
+    // Find the products and collections sub-sitemaps
+    const productsSitemap = rootSitemaps.find((u) => new URL(u).pathname.includes('sitemap_products'))
+    const collectionsSitemap = rootSitemaps.find((u) => new URL(u).pathname.includes('sitemap_collections'))
+
+    // Fetch each sub-sitemap and grab the first real page URL
+    async function getFirstUrl(sitemapUrl: string, pathPrefix: string): Promise<string | null> {
+      try {
+        const res = await fetch(sitemapUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          signal: AbortSignal.timeout(10000),
+        })
+        if (!res.ok) return null
+        const xml = await res.text()
+        const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim())
+        // Skip the homepage entry that Shopify includes in the products sitemap
+        return urls.find((u) => new URL(u).pathname.startsWith(pathPrefix)) || null
+      } catch {
+        return null
+      }
+    }
+
+    if (productsSitemap) {
+      result.productUrl = await getFirstUrl(productsSitemap, '/products/')
+    }
+    if (collectionsSitemap) {
+      result.collectionUrl = await getFirstUrl(collectionsSitemap, '/collections/')
+    }
+  } catch (err) {
+    console.error('[discoverPagesFromSitemap] Failed:', err instanceof Error ? err.message : err)
+  }
+
+  return result
+}
+
+/**
  * SECURITY CRITICAL: Internal-only function - NOT exported to client
  * This function launches expensive Chromium browser instances
  * ONLY callable from verified server-side code paths
@@ -245,49 +314,29 @@ async function runAccessibilityAudit(
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     })
 
-    // --- Discover pages to scan ---
-    // Always scan homepage. Then find a product and collection page from the DOM.
+    // --- Discover pages to scan via sitemap ---
+    // Shopify generates /sitemap.xml on every store regardless of theme.
+    // This is far more reliable than scraping the DOM for links.
     const origin = new URL(url).origin
+    const { productUrl, collectionUrl } = await discoverPagesFromSitemap(origin)
+
     const urlsToScan: string[] = [url]
 
-    // Load the homepage to discover product/collection links
-    const homePage = await navigatePage(context, url)
-
-    // Find a product page link
-    const productHref = await homePage.evaluate(() => {
-      const a = document.querySelector('a[href*="/products/"]') as HTMLAnchorElement | null
-      return a?.href || null
-    })
-    if (productHref) {
-      try {
-        const productUrl = new URL(productHref, origin).href
-        const { validateURL: v } = await import('@/app/utils/ssrf-protection')
-        if ((await v(productUrl)).allowed && !urlsToScan.includes(productUrl)) {
-          urlsToScan.push(productUrl)
-        }
-      } catch {}
+    // Validate and add discovered URLs
+    const { validateURL: v } = await import('@/app/utils/ssrf-protection')
+    if (productUrl && (await v(productUrl)).allowed) {
+      urlsToScan.push(productUrl)
     }
-
-    // Always try /collections/all
-    const collectionsUrl = `${origin}/collections/all`
-    try {
-      const { validateURL: v } = await import('@/app/utils/ssrf-protection')
-      if ((await v(collectionsUrl)).allowed) {
-        urlsToScan.push(collectionsUrl)
-      }
-    } catch {}
+    if (collectionUrl && (await v(collectionUrl)).allowed && !urlsToScan.includes(collectionUrl)) {
+      urlsToScan.push(collectionUrl)
+    }
 
     console.log(`[runAccessibilityAudit] Scanning ${urlsToScan.length} pages:`, urlsToScan)
 
     // --- Scan each page ---
     const allViolations: any[][] = []
 
-    // Scan the homepage we already loaded
-    allViolations.push(await scanSinglePage(homePage, url))
-    await homePage.close()
-
-    // Scan additional pages
-    for (const pageUrl of urlsToScan.slice(1)) {
+    for (const pageUrl of urlsToScan) {
       try {
         const page = await navigatePage(context, pageUrl)
         allViolations.push(await scanSinglePage(page, pageUrl))
