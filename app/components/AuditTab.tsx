@@ -49,6 +49,7 @@ export function AuditTab() {
   const [selectedImage, setSelectedImage] = useState<{
     url: string
     html: string
+    currentAlt?: string
   } | null>(null)
   const [fixingViolations, setFixingViolations] = useState<Set<string>>(new Set())
   const [fixResults, setFixResults] = useState<Map<string, {
@@ -149,10 +150,10 @@ export function AuditTab() {
     return srcMatch ? srcMatch[1] : null
   }
 
-  const handleFixImage = (html: string) => {
-    const imageUrl = extractImageUrl(html)
+  const handleFixImage = (html: string, explicitSrc?: string, currentAlt?: string) => {
+    const imageUrl = explicitSrc || extractImageUrl(html)
     if (imageUrl) {
-      setSelectedImage({ url: imageUrl, html })
+      setSelectedImage({ url: imageUrl, html, currentAlt })
       setAltTextModalOpen(true)
     }
   }
@@ -493,8 +494,19 @@ export function AuditTab() {
                                           Selector: {node.target.join(' > ')}
                                         </Text>
 
-                                        {/* Show AI-powered fix button for all violations in embedded mode */}
-                                        {isEmbedded && (
+                                        {/* Generic alt text: open the AI vision modal */}
+                                        {isEmbedded && violation.id === 'generic-alt-text' && node._imageSrc && (
+                                          <Button
+                                            size="slim"
+                                            tone="success"
+                                            onClick={() => handleFixImage(node.html, node._imageSrc!, node._genericAlt)}
+                                          >
+                                            Fix Alt Text with AI
+                                          </Button>
+                                        )}
+
+                                        {/* All other violations: generic AI fix */}
+                                        {isEmbedded && violation.id !== 'generic-alt-text' && (
                                           <Button
                                             size="slim"
                                             loading={isFixing}
@@ -753,6 +765,7 @@ export function AuditTab() {
           }}
           imageUrl={selectedImage.url}
           imageHtml={selectedImage.html}
+          currentAlt={selectedImage.currentAlt}
         />
       )}
     </BlockStack>

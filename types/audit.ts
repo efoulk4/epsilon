@@ -10,6 +10,8 @@ export interface AuditViolation {
     html: string;
     target: string[];
     failureSummary: string;
+    _imageSrc?: string;
+    _genericAlt?: string;
   }[];
 }
 

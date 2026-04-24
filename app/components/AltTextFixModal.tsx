@@ -19,6 +19,7 @@ interface AltTextFixModalProps {
   onClose: () => void
   imageUrl: string
   imageHtml: string
+  currentAlt?: string
 }
 
 export function AltTextFixModal({
@@ -26,6 +27,7 @@ export function AltTextFixModal({
   onClose,
   imageUrl,
   imageHtml,
+  currentAlt,
 }: AltTextFixModalProps) {
   const getIdToken = useIdToken()
   const [altText, setAltText] = useState('')
@@ -113,10 +115,18 @@ export function AltTextFixModal({
             </div>
           </BlockStack>
 
+          {currentAlt && (
+            <Banner tone="warning">
+              <Text as="p" variant="bodyMd">
+                Current alt text: <strong>&quot;{currentAlt}&quot;</strong> — this is too generic for screen readers.
+              </Text>
+            </Banner>
+          )}
+
           <BlockStack gap="300">
             <InlineStack align="space-between" blockAlign="center">
               <Text as="h3" variant="headingSm">
-                Alt Text
+                Suggested Alt Text
               </Text>
               <Button
                 onClick={handleGenerateAltText}

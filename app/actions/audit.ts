@@ -179,6 +179,82 @@ async function runAccessibilityAudit(
 
     const violations = axeResults.violations
 
+    // Detect images with generic/non-descriptive alt text
+    // Axe only flags missing alt text — it doesn't catch "product image", "photo", etc.
+    const genericAltImages = await page.evaluate(() => {
+      const GENERIC_PATTERNS = [
+        /^image$/i,
+        /^photo$/i,
+        /^picture$/i,
+        /^img$/i,
+        /^graphic$/i,
+        /^icon$/i,
+        /^logo$/i,
+        /^banner$/i,
+        /^thumbnail$/i,
+        /^placeholder$/i,
+        /^untitled$/i,
+        /^image \d+$/i,
+        /^photo \d+$/i,
+        /^product image$/i,
+        /^product photo$/i,
+        /^product picture$/i,
+        /^shop image$/i,
+        /^store image$/i,
+        /^\d+$/,
+        /^dsc\d+$/i,
+        /^img\d+$/i,
+        /^screenshot$/i,
+        /^image \d+ of \d+$/i,
+      ]
+
+      const results: { html: string; target: string[]; alt: string; src: string }[] = []
+      const imgs = document.querySelectorAll('img[alt]')
+
+      imgs.forEach((img, index) => {
+        const alt = (img as HTMLImageElement).alt.trim()
+        const src = (img as HTMLImageElement).src || ''
+
+        if (!alt) return // Axe already catches missing alt
+
+        const isGeneric = GENERIC_PATTERNS.some((pattern) => pattern.test(alt))
+        if (!isGeneric) return
+
+        // Build a CSS selector for this element
+        const id = img.id ? `#${img.id}` : ''
+        const classes = img.className ? `.${img.className.trim().split(/\s+/).join('.')}` : ''
+        const selector = id || classes || `img:nth-of-type(${index + 1})`
+
+        results.push({
+          html: img.outerHTML.slice(0, 300),
+          target: [selector],
+          alt,
+          src,
+        })
+      })
+
+      return results
+    })
+
+    // Inject generic alt text findings as a synthetic violation
+    if (genericAltImages.length > 0) {
+      violations.push({
+        id: 'generic-alt-text',
+        impact: 'serious',
+        description: 'Images have generic or non-descriptive alt text that does not convey the image content to screen reader users.',
+        help: 'Images must have descriptive alt text',
+        helpUrl: 'https://www.w3.org/WAI/tutorials/images/decorative/',
+        nodes: genericAltImages.map((img) => ({
+          html: img.html,
+          target: img.target,
+          failureSummary: `Fix any of the following: Image alt text is generic ("${img.alt}"). Replace with a description of what the image shows.`,
+          // Carry src through for AI generation — stripped later when saving to DB
+          _imageSrc: img.src,
+          _genericAlt: img.alt,
+        })),
+      })
+    }
+
     // Count violations by impact level
     const violationsByImpact = {
       critical: 0,
@@ -205,6 +281,8 @@ async function runAccessibilityAudit(
         html: node.html,
         target: node.target,
         failureSummary: node.failureSummary || 'No summary available',
+        ...(node._imageSrc ? { _imageSrc: node._imageSrc } : {}),
+        ...(node._genericAlt ? { _genericAlt: node._genericAlt } : {}),
       })),
     }))
 
