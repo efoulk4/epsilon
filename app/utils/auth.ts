@@ -20,20 +20,27 @@ const shopify = shopifyApi({
  * SECURITY CRITICAL: Extract and cryptographically verify shop from Shopify's signed session token
  * NEVER trust shop from query params, client state, form data, or unverified headers
  *
- * This function uses Shopify's official library to verify JWT signatures against Shopify's secret.
+ * Accepts a token either from an explicit argument (server actions, which cannot set their own
+ * request headers) or falls back to the Authorization header (API routes).
  * Fail-closed: returns null for any invalid, missing, or unverifiable tokens.
  */
-export async function getVerifiedShop(): Promise<string | null> {
+export async function getVerifiedShop(explicitToken?: string): Promise<string | null> {
   try {
-    const headersList = await headers()
-    const authHeader = headersList.get('authorization')
+    let token: string
 
-    if (!authHeader?.startsWith('Bearer ')) {
-      console.error('[getVerifiedShop] No valid Authorization header')
-      return null
+    if (explicitToken) {
+      token = explicitToken
+    } else {
+      const headersList = await headers()
+      const authHeader = headersList.get('authorization')
+
+      if (!authHeader?.startsWith('Bearer ')) {
+        console.error('[getVerifiedShop] No valid Authorization header')
+        return null
+      }
+
+      token = authHeader.substring(7)
     }
-
-    const token = authHeader.substring(7)
 
     // SECURITY: Use Shopify's official session token validation
     // This cryptographically verifies the JWT signature using the app secret
@@ -67,8 +74,8 @@ export async function getVerifiedShop(): Promise<string | null> {
  *
  * Throws immediately if authentication fails - no fallback paths
  */
-export async function requireVerifiedShop(): Promise<string> {
-  const shop = await getVerifiedShop()
+export async function requireVerifiedShop(explicitToken?: string): Promise<string> {
+  const shop = await getVerifiedShop(explicitToken)
 
   if (!shop) {
     throw new Error('Unauthorized: No verified shop session. Valid Shopify session token required.')
@@ -81,8 +88,8 @@ export async function requireVerifiedShop(): Promise<string> {
  * Validate that a provided shop matches the cryptographically verified shop
  * Use this when a server action receives a shop parameter that must match auth
  */
-export async function validateShopMatch(providedShop: string): Promise<string> {
-  const verifiedShop = await requireVerifiedShop()
+export async function validateShopMatch(providedShop: string, explicitToken?: string): Promise<string> {
+  const verifiedShop = await requireVerifiedShop(explicitToken)
 
   if (providedShop !== verifiedShop) {
     throw new Error('Unauthorized: Shop mismatch. Provided shop does not match authenticated session.')

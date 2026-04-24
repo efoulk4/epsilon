@@ -9,10 +9,10 @@ import { requireVerifiedShop } from '@/app/utils/auth'
 import { validateShopifyStoreURL } from '@/app/utils/ssrf-protection'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 
-export async function runAccessibilityAuditForShop(): Promise<AuditResult | AuditError> {
+export async function runAccessibilityAuditForShop(idToken?: string): Promise<AuditResult | AuditError> {
   try {
     // SECURITY: Get verified shop from server-side auth, not client params
-    const shop = await requireVerifiedShop()
+    const shop = await requireVerifiedShop(idToken)
 
     // SECURITY: Rate limiting - prevent audit spam (expensive operation)
     const rateLimit = await checkRateLimit(`audit:${shop}`, RATE_LIMITS.audit)
@@ -306,7 +306,8 @@ async function saveAuditToDatabase(
 
 export async function getAuditHistory(
   url: string,
-  days: number = 30
+  days: number = 30,
+  idToken?: string
 ): Promise<AuditResult[]> {
   if (!isSupabaseConfigured) {
     console.warn('Supabase not configured. Cannot fetch audit history.')
@@ -315,7 +316,7 @@ export async function getAuditHistory(
 
   try {
     // SECURITY: Get verified shop - only show audits for this tenant
-    const shop = await requireVerifiedShop()
+    const shop = await requireVerifiedShop(idToken)
 
     const startDate = new Date()
     startDate.setDate(startDate.getDate() - days)

@@ -350,7 +350,8 @@ export async function fixViolationWithAI(
     help: string
     helpUrl: string
     node: ViolationNode
-  }
+  },
+  idToken?: string
 ): Promise<{
   success: boolean
   fixDescription?: string
@@ -366,7 +367,7 @@ export async function fixViolationWithAI(
 }> {
   try {
     // SECURITY: Get verified shop from server-side auth, not client params
-    const shop = await requireVerifiedShop()
+    const shop = await requireVerifiedShop(idToken)
 
     // SECURITY: Rate limiting - prevent AI fix generation spam
     const rateLimit = await checkRateLimit(`ai-fix:${shop}`, RATE_LIMITS.aiFix)

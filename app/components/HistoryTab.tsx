@@ -10,6 +10,7 @@ import {
 } from '@shopify/polaris'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { getAuditHistory } from '../actions/audit'
+import { useIdToken } from '../hooks/useIdToken'
 import { calculateHealthScore } from '../utils/healthScore'
 import type { AuditResult } from '@/types/audit'
 import { isSupabaseConfigured } from '@/lib/supabase'
@@ -19,6 +20,7 @@ interface HistoryTabProps {
 }
 
 export function HistoryTab({ shop }: HistoryTabProps) {
+  const getIdToken = useIdToken()
   const [loading, setLoading] = useState(true)
   const [history, setHistory] = useState<AuditResult[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -36,9 +38,9 @@ export function HistoryTab({ shop }: HistoryTabProps) {
       setError(null)
 
       try {
-        // Construct the shop URL
+        const idToken = await getIdToken()
         const shopUrl = `https://${shop}`
-        const results = await getAuditHistory(shopUrl, 30)
+        const results = await getAuditHistory(shopUrl, 30, idToken)
         setHistory(results)
 
         if (results.length === 0) {

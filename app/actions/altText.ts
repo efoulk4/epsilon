@@ -9,10 +9,11 @@ const apiKey = process.env.GOOGLE_API_KEY || ''
 const isGeminiConfigured = apiKey && apiKey !== 'your_google_gemini_api_key'
 
 export async function generateAltText(
-  imageUrl: string
+  imageUrl: string,
+  idToken?: string
 ): Promise<{ success: boolean; altText?: string; error?: string }> {
   // SECURITY: Require verified shop authentication
-  const shop = await requireVerifiedShop()
+  const shop = await requireVerifiedShop(idToken)
 
   // SECURITY: Rate limiting - prevent alt-text generation spam
   const rateLimit = await checkRateLimit(`alt-text:${shop}`, RATE_LIMITS.aiFix)

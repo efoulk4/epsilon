@@ -12,6 +12,7 @@ import {
   Banner,
 } from '@shopify/polaris'
 import { generateAltText } from '../actions/altText'
+import { useIdToken } from '../hooks/useIdToken'
 
 interface AltTextFixModalProps {
   open: boolean
@@ -26,6 +27,7 @@ export function AltTextFixModal({
   imageUrl,
   imageHtml,
 }: AltTextFixModalProps) {
+  const getIdToken = useIdToken()
   const [altText, setAltText] = useState('')
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,7 +37,8 @@ export function AltTextFixModal({
     setError(null)
 
     try {
-      const result = await generateAltText(imageUrl)
+      const idToken = await getIdToken()
+      const result = await generateAltText(imageUrl, idToken)
 
       if (result.success && result.altText) {
         setAltText(result.altText)

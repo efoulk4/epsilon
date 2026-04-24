@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useIdToken } from '../hooks/useIdToken'
 import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../actions/audit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
@@ -31,6 +32,7 @@ import { StoreIcon } from '@shopify/polaris-icons'
 
 export function AuditTab() {
   const searchParams = useSearchParams()
+  const getIdToken = useIdToken()
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -89,8 +91,8 @@ export function AuditTab() {
     setResult(null)
 
     try {
-      // SECURITY: Shop is now verified server-side, no need to pass it
-      const auditResult = await runAccessibilityAuditForShop()
+      const idToken = await getIdToken()
+      const auditResult = await runAccessibilityAuditForShop(idToken)
 
       if ('error' in auditResult) {
         setError(auditResult.details || auditResult.error)
@@ -215,15 +217,14 @@ export function AuditTab() {
     setFixingViolations((prev) => new Set(prev).add(fixKey))
 
     try {
-      // Use AI agent to analyze and generate fix
-      // SECURITY: Shop is verified server-side, not passed from client
+      const idToken = await getIdToken()
       const result = await fixViolationWithAI({
         id: violation.id,
         description: violation.description,
         help: violation.help,
         helpUrl: violation.helpUrl,
         node: violation.nodes[nodeIndex],
-      })
+      }, idToken)
 
       if (result.success) {
         setFixResults((prev) => {
