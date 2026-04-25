@@ -91,12 +91,12 @@ export async function saveShopifySession(session: {
 
   const { error } = await supabase.from('shopify_sessions').upsert({
     shop: session.shop,
-    access_token: encryptedToken, // Store encrypted, not plaintext
+    access_token: encryptedToken,
     scope: session.scope || null,
     expires_at: session.expires ? session.expires.toISOString() : null,
     is_online: session.isOnline,
     updated_at: new Date().toISOString(),
-  })
+  }, { onConflict: 'shop' })
 
   if (error) {
     console.error('Error saving Shopify session:', error.code, error.message, error.details)
