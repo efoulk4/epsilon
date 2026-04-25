@@ -27,9 +27,28 @@ export async function shopifyGraphQL(shop: string, query: string, variables?: Re
   const session = await getShopifySession(shop)
   if (!session) throw new Error('No valid session found for shop')
 
-  const client = new shopify.clients.Graphql({ session: makeSession(session) })
-  const response = await client.request(query, { variables })
-  return response.data
+  const res = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Shopify-Access-Token': session.access_token,
+    },
+    body: JSON.stringify({ query, variables }),
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    console.error(`[shopifyGraphQL] ${res.status} from ${shop}:`, text.slice(0, 200))
+    throw new Error(`Shopify GraphQL ${res.status}: ${res.statusText}`)
+  }
+
+  const json = await res.json()
+  if (json.errors) {
+    console.error('[shopifyGraphQL] GraphQL errors:', JSON.stringify(json.errors).slice(0, 200))
+    throw new Error(json.errors[0]?.message || 'GraphQL error')
+  }
+
+  return json.data
 }
 
 export async function getShopifyGraphQLClient(shop: string) {
