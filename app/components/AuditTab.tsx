@@ -15,6 +15,11 @@ const AltTextFixModal = dynamic(
   () => import('./AltTextFixModal').then((m) => m.AltTextFixModal),
   { ssr: false }
 )
+
+const ProductContentFixModal = dynamic(
+  () => import('./ProductContentFixModal').then((m) => m.ProductContentFixModal),
+  { ssr: false }
+)
 import {
   Card,
   Button,
@@ -68,6 +73,16 @@ export function AuditTab() {
   const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
   const [urlInput, setUrlInput] = useState('')
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
+  const [productContentModal, setProductContentModal] = useState<{
+    fixType: 'seo-title' | 'seo-description' | 'product-title' | 'product-description'
+    productId: string
+    productHandle: string
+    productTitle: string
+    currentValue: string
+    description: string
+    seoTitle: string
+    seoDescription: string
+  } | null>(null)
 
   const toggleExpandedNodes = useCallback((violationId: string) => {
     setExpandedNodes((prev) => {
@@ -580,8 +595,37 @@ export function AuditTab() {
                                                   )
                                                 )}
 
-                                                {/* All other violations: generic AI fix */}
-                                                {!isImageAltViolation && (
+                                                {/* Product content violations: open the product content modal */}
+                                                {!isImageAltViolation && node._fixType && node._fixType !== 'image-alt' && node._productId && (
+                                                  isEmbedded ? (
+                                                    <Button
+                                                      size="slim"
+                                                      tone="success"
+                                                      onClick={() => setProductContentModal({
+                                                        fixType: node._fixType as 'seo-title' | 'seo-description' | 'product-title' | 'product-description',
+                                                        productId: node._productId!,
+                                                        productHandle: node._productHandle || '',
+                                                        productTitle: node._productTitle || '',
+                                                        currentValue: node._fixType === 'seo-title' ? (node._seoTitle || '') :
+                                                          node._fixType === 'seo-description' ? (node._seoDescription || '') :
+                                                          node._fixType === 'product-title' ? (node._productTitle || '') :
+                                                          (node._description || ''),
+                                                        description: node._description || '',
+                                                        seoTitle: node._seoTitle || '',
+                                                        seoDescription: node._seoDescription || '',
+                                                      })}
+                                                    >
+                                                      Fix with AI
+                                                    </Button>
+                                                  ) : (
+                                                    <Text as="p" variant="bodySm" tone="subdued">
+                                                      Install the Shopify app to fix with AI
+                                                    </Text>
+                                                  )
+                                                )}
+
+                                                {/* All other structural violations: generic AI fix */}
+                                                {!isImageAltViolation && !(node._fixType && node._fixType !== 'image-alt' && node._productId) && (
                                                   isEmbedded ? (
                                                     <Button
                                                       size="slim"
@@ -862,6 +906,22 @@ export function AuditTab() {
           imageUrl={selectedImage.url}
           imageHtml={selectedImage.html}
           currentAlt={selectedImage.currentAlt}
+        />
+      )}
+
+      {/* Product Content Fix Modal */}
+      {productContentModal && (
+        <ProductContentFixModal
+          open={!!productContentModal}
+          onClose={() => setProductContentModal(null)}
+          fixType={productContentModal.fixType}
+          productId={productContentModal.productId}
+          productHandle={productContentModal.productHandle}
+          productTitle={productContentModal.productTitle}
+          currentValue={productContentModal.currentValue}
+          description={productContentModal.description}
+          seoTitle={productContentModal.seoTitle}
+          seoDescription={productContentModal.seoDescription}
         />
       )}
     </BlockStack>

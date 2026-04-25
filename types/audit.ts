@@ -15,6 +15,12 @@ export interface AuditViolation {
     _genericAlt?: string;
     _productId?: string;
     _imageId?: string;
+    _productHandle?: string;
+    _productTitle?: string;
+    _seoTitle?: string;
+    _seoDescription?: string;
+    _description?: string;
+    _fixType?: 'image-alt' | 'seo-title' | 'seo-description' | 'product-title' | 'product-description';
   }[];
 }
 
