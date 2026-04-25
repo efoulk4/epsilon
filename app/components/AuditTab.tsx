@@ -56,6 +56,8 @@ export function AuditTab() {
     url: string
     html: string
     currentAlt?: string
+    imageId?: string
+    productId?: string
   } | null>(null)
   const [fixingViolations, setFixingViolations] = useState<Set<string>>(new Set())
   const [fixResults, setFixResults] = useState<Map<string, {
@@ -201,10 +203,10 @@ export function AuditTab() {
     return srcMatch ? srcMatch[1] : null
   }
 
-  const handleFixImage = (html: string, explicitSrc?: string, currentAlt?: string) => {
+  const handleFixImage = (html: string, explicitSrc?: string, currentAlt?: string, imageId?: string, productId?: string) => {
     const imageUrl = explicitSrc || extractImageUrl(html)
     if (imageUrl) {
-      setSelectedImage({ url: imageUrl, html, currentAlt })
+      setSelectedImage({ url: imageUrl, html, currentAlt, imageId, productId })
       setAltTextModalOpen(true)
     }
   }
@@ -584,7 +586,7 @@ export function AuditTab() {
                                                     <Button
                                                       size="slim"
                                                       tone="success"
-                                                      onClick={() => handleFixImage(node.html, imageSrc, node._genericAlt)}
+                                                      onClick={() => handleFixImage(node.html, imageSrc, node._genericAlt, node._imageId, node._productId)}
                                                     >
                                                       Fix Alt Text with AI
                                                     </Button>
@@ -906,6 +908,8 @@ export function AuditTab() {
           imageUrl={selectedImage.url}
           imageHtml={selectedImage.html}
           currentAlt={selectedImage.currentAlt}
+          imageId={selectedImage.imageId}
+          productId={selectedImage.productId}
         />
       )}
 

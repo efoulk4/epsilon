@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import { validateImageURL } from '@/app/utils/ssrf-protection'
 import { requireVerifiedShop } from '@/app/utils/auth'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
+import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 
 const apiKey = process.env.GOOGLE_API_KEY || ''
 const isGeminiConfigured = apiKey && apiKey !== 'your_google_gemini_api_key'
@@ -57,12 +58,12 @@ export async function generateAltText(
     const base64Image = Buffer.from(imageBuffer).toString('base64')
     const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg'
 
-    const prompt = `Generate a concise, descriptive alt text for this image. The alt text should:
-- Be descriptive and specific (describe what's in the image)
-- Be concise (under 125 characters if possible)
-- Focus on the content and context that's relevant for accessibility
-- Not include phrases like "image of" or "picture of"
-- Be written in a natural, readable way
+    const prompt = `You are writing alt text for a product image on an e-commerce store. Generate a concise, descriptive alt text that:
+- Describes the product shown (type, color, key features)
+- Is under 125 characters
+- Does NOT start with "image of", "photo of", or "picture of"
+- Is specific enough to distinguish this product from similar ones
+- Reads naturally when announced by a screen reader
 
 Provide ONLY the alt text, nothing else.`
 
@@ -88,6 +89,48 @@ Provide ONLY the alt text, nothing else.`
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
+    }
+  }
+}
+
+export async function applyAltText(
+  imageId: string,
+  productId: string,
+  altText: string,
+  idToken?: string
+): Promise<{ success: boolean; error?: string }> {
+  const shop = await requireVerifiedShop(idToken)
+
+  const rateLimit = await checkRateLimit(`alt-text:${shop}`, RATE_LIMITS.aiFix)
+  if (!rateLimit.allowed) {
+    return { success: false, error: 'Rate limit exceeded. Please try again later.' }
+  }
+
+  try {
+    const mutation = `
+      mutation productUpdateMedia($productId: ID!, $media: [UpdateMediaInput!]!) {
+        productUpdateMedia(productId: $productId, media: $media) {
+          media { ... on MediaImage { id alt } }
+          mediaUserErrors { field message }
+        }
+      }
+    `
+
+    const data = await shopifyGraphQL(shop, mutation, {
+      productId: `gid://shopify/Product/${productId}`,
+      media: [{ id: imageId, alt: altText }],
+    })
+
+    const errors = data?.productUpdateMedia?.mediaUserErrors
+    if (errors?.length > 0) {
+      return { success: false, error: errors[0].message }
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to apply alt text',
     }
   }
 }

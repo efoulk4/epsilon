@@ -11,7 +11,7 @@ import {
   InlineStack,
   Banner,
 } from '@shopify/polaris'
-import { generateAltText } from '../actions/altText'
+import { generateAltText, applyAltText } from '../actions/altText'
 import { useIdToken } from '../hooks/useIdToken'
 
 interface AltTextFixModalProps {
@@ -20,6 +20,8 @@ interface AltTextFixModalProps {
   imageUrl: string
   imageHtml: string
   currentAlt?: string
+  imageId?: string
+  productId?: string
 }
 
 export function AltTextFixModal({
@@ -28,10 +30,14 @@ export function AltTextFixModal({
   imageUrl,
   imageHtml,
   currentAlt,
+  imageId,
+  productId,
 }: AltTextFixModalProps) {
   const getIdToken = useIdToken()
   const [altText, setAltText] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [applied, setApplied] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleGenerateAltText = async () => {
@@ -55,9 +61,32 @@ export function AltTextFixModal({
     }
   }
 
+  const handleApply = async () => {
+    if (!altText.trim() || !imageId || !productId) return
+    setApplying(true)
+    setError(null)
+
+    try {
+      const idToken = await getIdToken()
+      const result = await applyAltText(imageId, productId, altText.trim(), idToken)
+
+      if (result.success) {
+        setApplied(true)
+      } else {
+        setError(result.error || 'Failed to apply alt text')
+      }
+    } catch (err) {
+      setError('An unexpected error occurred')
+      console.error(err)
+    } finally {
+      setApplying(false)
+    }
+  }
+
   const handleClose = () => {
     setAltText('')
     setError(null)
+    setApplied(false)
     onClose()
   }
 
@@ -66,18 +95,19 @@ export function AltTextFixModal({
       open={open}
       onClose={handleClose}
       title="Generate Alt Text"
-      secondaryActions={[
-        {
-          content: 'Close',
-          onAction: handleClose,
-        },
-      ]}
+      secondaryActions={[{ content: 'Close', onAction: handleClose }]}
     >
       <Modal.Section>
         <BlockStack gap="400">
           {error && (
             <Banner tone="critical" onDismiss={() => setError(null)}>
               {error}
+            </Banner>
+          )}
+
+          {applied && (
+            <Banner tone="success">
+              Alt text applied to your store successfully.
             </Banner>
           )}
 
@@ -131,7 +161,7 @@ export function AltTextFixModal({
               <Button
                 onClick={handleGenerateAltText}
                 loading={generating}
-                disabled={generating}
+                disabled={generating || applied}
               >
                 {generating ? 'Generating...' : 'Generate with AI'}
               </Button>
@@ -145,12 +175,27 @@ export function AltTextFixModal({
               multiline={3}
               autoComplete="off"
               helpText="Describe the image concisely for screen readers (under 125 characters recommended)"
+              disabled={applied}
             />
 
             <Text as="p" variant="bodySm" tone="subdued">
               Character count: {altText.length}
             </Text>
           </BlockStack>
+
+          {altText && !applied && imageId && productId && (
+            <InlineStack align="end">
+              <Button
+                variant="primary"
+                tone="success"
+                onClick={handleApply}
+                loading={applying}
+                disabled={applying || !altText.trim()}
+              >
+                {applying ? 'Applying...' : 'Apply to Store'}
+              </Button>
+            </InlineStack>
+          )}
 
           <BlockStack gap="200">
             <Text as="h3" variant="headingSm">
