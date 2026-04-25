@@ -2,28 +2,38 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
+  const { pathname, searchParams } = request.nextUrl
+
+  // Handle Shopify install flow: when Shopify hits the app URL with ?shop= but
+  // without embedded=1, it's an install/re-install. Redirect to the OAuth install route.
+  if (pathname === '/') {
+    const shop = searchParams.get('shop')
+    const embedded = searchParams.get('embedded')
+    const hmac = searchParams.get('hmac')
+
+    // hmac present = Shopify-signed request (install or re-install)
+    // embedded=1 absent = not already inside the admin iframe
+    if (shop && hmac && embedded !== '1') {
+      const installUrl = new URL('/api/auth/shopify/install', request.url)
+      installUrl.searchParams.set('shop', shop)
+      return NextResponse.redirect(installUrl)
+    }
+  }
+
   // SECURITY: Only apply ngrok headers in development
-  // Production traffic should not have unnecessary global mutations
   const isDevelopment = process.env.NODE_ENV === 'development'
 
   if (isDevelopment) {
-    // Add ngrok-skip-browser-warning header to bypass ngrok interstitial page
     const requestHeaders = new Headers(request.headers)
     requestHeaders.set('ngrok-skip-browser-warning', '69420')
 
     const response = NextResponse.next({
-      request: {
-        headers: requestHeaders,
-      },
+      request: { headers: requestHeaders },
     })
-
-    // Also set it in the response for future requests
     response.headers.set('ngrok-skip-browser-warning', '69420')
-
     return response
   }
 
-  // Production: no header mutation
   return NextResponse.next()
 }
 
