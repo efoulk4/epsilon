@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No access token received' }, { status: 500 })
     }
 
-    console.log('[OAuth Callback] Token received for shop:', shop)
+    console.log('[OAuth Callback] Token received for shop:', shop, 'scope:', scope)
 
     // Save session to Supabase
     const saved = await saveShopifySession({
