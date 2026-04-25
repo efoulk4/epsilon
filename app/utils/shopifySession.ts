@@ -89,7 +89,7 @@ export async function saveShopifySession(session: {
   })
 
   if (error) {
-    console.error('Error saving Shopify session:', error)
+    console.error('Error saving Shopify session:', error.code, error.message, error.details)
     return false
   }
 
