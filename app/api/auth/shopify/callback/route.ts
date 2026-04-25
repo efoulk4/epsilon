@@ -137,8 +137,7 @@ export async function GET(request: NextRequest) {
       }).select()
 
       if (error) {
-        console.error('[OAuth Callback] Failed to store session in Supabase')
-        // SECURITY: Do not log error details which may contain sensitive data
+        console.error('[OAuth Callback] Failed to store session in Supabase', error.code, error.message)
       } else {
         console.log('[OAuth Callback] Session stored successfully for shop:', session.shop)
         // SECURITY: Do not log session data (contains access tokens)
