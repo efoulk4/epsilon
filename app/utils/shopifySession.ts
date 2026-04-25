@@ -74,7 +74,17 @@ export async function saveShopifySession(session: {
     return false
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        'apikey': supabaseServiceKey,
+      },
+    },
+  })
 
   // SECURITY: Encrypt access token before storing
   const encryptedToken = encrypt(session.accessToken)
