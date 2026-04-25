@@ -41,7 +41,7 @@ export async function getShopifySession(shop: string): Promise<ShopifySession | 
     .single()
 
   if (error) {
-    console.error('[getShopifySession] Session fetch failed')
+    console.error('[getShopifySession] Session fetch failed', error.code, error.message)
     return null
   }
 
