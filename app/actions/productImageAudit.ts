@@ -117,13 +117,6 @@ export async function runProductImageAudit(
     console.log(`[runProductImageAudit] Scanning all products for shop: ${shop}`)
     const products = await fetchAllProducts(shop)
 
-    // Diagnostic: log all product image alt texts
-    for (const p of products) {
-      for (const img of p.images) {
-        console.log(`[runProductImageAudit] product="${p.title}" altText=${JSON.stringify(img.altText)} isGeneric=${isGenericAlt(img.altText ?? '')}`)
-      }
-    }
-
     // Buckets for each violation type
     const missingImageAlt: AuditViolation['nodes'] = []
     const genericImageAlt: AuditViolation['nodes'] = []
