@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('scope', SHOPIFY_SCOPES)
     authUrl.searchParams.set('redirect_uri', redirectUri)
     authUrl.searchParams.set('state', state)
+    authUrl.searchParams.set('grant_options[]', 'per-user')
 
     // Store state in a cookie for CSRF verification in the callback
     const response = NextResponse.redirect(authUrl.toString())

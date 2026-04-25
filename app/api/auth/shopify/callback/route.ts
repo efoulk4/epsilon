@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
       shop,
       accessToken: access_token,
       scope,
-      isOnline: false,
+      isOnline: true,
     })
 
     if (!saved) {
