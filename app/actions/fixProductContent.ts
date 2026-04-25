@@ -1,7 +1,7 @@
 'use server'
 
 import { requireVerifiedShop } from '@/app/utils/auth'
-import { getShopifyGraphQLClient } from '@/app/utils/shopifyClient'
+import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -97,7 +97,6 @@ async function applyContentFix(
   ctx: FixContext,
   generatedContent: string
 ): Promise<{ success: boolean; error?: string }> {
-  const client = await getShopifyGraphQLClient(shop)
   const productGid = `gid://shopify/Product/${ctx.productId}`
 
   let input: Record<string, any>
@@ -126,11 +125,11 @@ async function applyContentFix(
     }
   `
 
-  const response = await client.query({ data: { query: mutation, variables: { input } } })
-  const data = (response.body as any)?.data?.productUpdate
+  const data = await shopifyGraphQL(shop, mutation, { input })
+  const result = data?.productUpdate
 
-  if (data?.userErrors?.length > 0) {
-    return { success: false, error: data.userErrors[0].message }
+  if (result?.userErrors?.length > 0) {
+    return { success: false, error: result.userErrors[0].message }
   }
 
   return { success: true }

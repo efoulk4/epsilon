@@ -1,6 +1,6 @@
 'use server'
 
-import { getShopifyGraphQLClient } from '@/app/utils/shopifyClient'
+import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import type { AuditViolation } from '@/types/audit'
 import { requireVerifiedShop } from '@/app/utils/auth'
@@ -94,45 +94,21 @@ async function applyProductContentFix(
   field: 'title' | 'descriptionHtml' = 'descriptionHtml'
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const client = await getShopifyGraphQLClient(shop)
-
     const mutation = `
       mutation productUpdate($input: ProductInput!) {
         productUpdate(input: $input) {
-          product {
-            id
-            ${field}
-          }
-          userErrors {
-            field
-            message
-          }
+          product { id }
+          userErrors { field message }
         }
       }
     `
 
-    const variables = {
-      input: {
-        id: `gid://shopify/Product/${productId}`,
-        [field]: correctedHtml,
-      },
-    }
-
-    const response = await client.query({
-      data: {
-        query: mutation,
-        variables,
-      },
+    const data = await shopifyGraphQL(shop, mutation, {
+      input: { id: `gid://shopify/Product/${productId}`, [field]: correctedHtml },
     })
 
-    const data = response.body as any
-
-    if (data?.data?.productUpdate?.userErrors?.length > 0) {
-      const errors = data.data.productUpdate.userErrors
-      return {
-        success: false,
-        error: errors[0].message,
-      }
+    if (data?.productUpdate?.userErrors?.length > 0) {
+      return { success: false, error: data.productUpdate.userErrors[0].message }
     }
 
     return { success: true }
@@ -154,45 +130,22 @@ async function applyPageContentFix(
   correctedHtml: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const client = await getShopifyGraphQLClient(shop)
-
     const mutation = `
       mutation pageUpdate($id: ID!, $page: PageInput!) {
         pageUpdate(id: $id, page: $page) {
-          page {
-            id
-            body
-          }
-          userErrors {
-            field
-            message
-          }
+          page { id }
+          userErrors { field message }
         }
       }
     `
 
-    const variables = {
+    const data = await shopifyGraphQL(shop, mutation, {
       id: `gid://shopify/OnlinePage/${pageId}`,
-      page: {
-        body: correctedHtml,
-      },
-    }
-
-    const response = await client.query({
-      data: {
-        query: mutation,
-        variables,
-      },
+      page: { body: correctedHtml },
     })
 
-    const data = response.body as any
-
-    if (data?.data?.pageUpdate?.userErrors?.length > 0) {
-      const errors = data.data.pageUpdate.userErrors
-      return {
-        success: false,
-        error: errors[0].message,
-      }
+    if (data?.pageUpdate?.userErrors?.length > 0) {
+      return { success: false, error: data.pageUpdate.userErrors[0].message }
     }
 
     return { success: true }
@@ -572,55 +525,28 @@ export async function fixProductAltText(
     }
 
     // Update the product image in Shopify using GraphQL Admin API
-    const client = await getShopifyGraphQLClient(shop)
-
     const mutation = `
       mutation updateProductImage($productId: ID!, $image: ImageInput!) {
         productImageUpdate(productId: $productId, image: $image) {
-          image {
-            id
-            altText
-            url
-          }
-          userErrors {
-            field
-            message
-          }
+          image { id altText url }
+          userErrors { field message }
         }
       }
     `
 
-    const variables = {
+    const data = await shopifyGraphQL(shop, mutation, {
       productId: `gid://shopify/Product/${productId}`,
-      image: {
-        altText: generatedAltText,
-        src: imageRecord.url,
-      },
-    }
-
-    const response = await client.query({
-      data: {
-        query: mutation,
-        variables,
-      },
+      image: { altText: generatedAltText, src: imageRecord.url },
     })
 
-    const data = response.body as any
-
-    if (data?.data?.productImageUpdate?.userErrors?.length > 0) {
-      const errors = data.data.productImageUpdate.userErrors
+    if (data?.productImageUpdate?.userErrors?.length > 0) {
+      const errors = data.productImageUpdate.userErrors
       console.error('[fixProductAltText] Shopify API errors:', errors)
-      return {
-        success: false,
-        error: errors[0].message,
-      }
+      return { success: false, error: errors[0].message }
     }
 
     console.log('[fixProductAltText] Successfully updated alt text')
-    return {
-      success: true,
-      altText: generatedAltText,
-    }
+    return { success: true, altText: generatedAltText }
   } catch (error) {
     console.error('[fixProductAltText] Unexpected error:', error)
     return {

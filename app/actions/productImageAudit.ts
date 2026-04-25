@@ -1,7 +1,7 @@
 'use server'
 
 import { requireVerifiedShop } from '@/app/utils/auth'
-import { getShopifyGraphQLClient } from '@/app/utils/shopifyClient'
+import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 import type { AuditViolation } from '@/types/audit'
 
@@ -40,36 +40,35 @@ interface ProductData {
   images: { id: string; url: string; altText: string | null }[]
 }
 
+const PRODUCT_AUDIT_QUERY = `
+  query ProductAudit($cursor: String) {
+    products(first: 50, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        title
+        handle
+        descriptionHtml
+        seo { title description }
+        images(first: 20) {
+          nodes { id url altText }
+        }
+      }
+    }
+  }
+`
+
 async function fetchAllProducts(shop: string): Promise<ProductData[]> {
-  const client = await getShopifyGraphQLClient(shop)
   const products: ProductData[] = []
   let cursor: string | null = null
   let hasNextPage = true
 
   while (hasNextPage) {
-    const query = `
-      query ProductAudit($cursor: String) {
-        products(first: 50, after: $cursor) {
-          pageInfo { hasNextPage endCursor }
-          nodes {
-            id
-            title
-            handle
-            descriptionHtml
-            seo { title description }
-            images(first: 20) {
-              nodes { id url altText }
-            }
-          }
-        }
-      }
-    `
+    const data = await shopifyGraphQL(shop, PRODUCT_AUDIT_QUERY, { cursor })
+    const page = data?.products
+    if (!page) break
 
-    const response: { body: unknown } = await client.query({ data: { query, variables: { cursor } } })
-    const data = (response.body as any)?.data?.products
-    if (!data) break
-
-    for (const p of data.nodes) {
+    for (const p of page.nodes) {
       products.push({
         id: p.id.replace('gid://shopify/Product/', ''),
         title: p.title,
@@ -84,8 +83,8 @@ async function fetchAllProducts(shop: string): Promise<ProductData[]> {
       })
     }
 
-    hasNextPage = data.pageInfo.hasNextPage
-    cursor = data.pageInfo.endCursor
+    hasNextPage = page.pageInfo.hasNextPage
+    cursor = page.pageInfo.endCursor
   }
 
   return products
@@ -117,6 +116,13 @@ export async function runProductImageAudit(
 
     console.log(`[runProductImageAudit] Scanning all products for shop: ${shop}`)
     const products = await fetchAllProducts(shop)
+
+    // Diagnostic: log all product image alt texts
+    for (const p of products) {
+      for (const img of p.images) {
+        console.log(`[runProductImageAudit] product="${p.title}" altText=${JSON.stringify(img.altText)} isGeneric=${isGenericAlt(img.altText ?? '')}`)
+      }
+    }
 
     // Buckets for each violation type
     const missingImageAlt: AuditViolation['nodes'] = []

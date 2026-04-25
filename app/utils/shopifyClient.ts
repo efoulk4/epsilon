@@ -12,71 +12,44 @@ const shopify = shopifyApi({
   isEmbeddedApp: true,
 })
 
+function makeSession(session: { shop: string; access_token: string; is_online: boolean; scope: string | null }) {
+  return {
+    id: `offline_${session.shop}`,
+    shop: session.shop,
+    accessToken: session.access_token,
+    state: 'authenticated',
+    isOnline: session.is_online,
+    scope: session.scope || '',
+  } as any
+}
+
+export async function shopifyGraphQL(shop: string, query: string, variables?: Record<string, any>): Promise<any> {
+  const session = await getShopifySession(shop)
+  if (!session) throw new Error('No valid session found for shop')
+
+  const client = new shopify.clients.Graphql({ session: makeSession(session) })
+  const response = await client.request(query, { variables })
+  return response.data
+}
+
 export async function getShopifyGraphQLClient(shop: string) {
   const session = await getShopifySession(shop)
-
-  if (!session) {
-    throw new Error('No valid session found for shop')
-  }
-
-  // SECURITY: Do not log session details (tokens, scopes)
-
-  const client = new shopify.clients.Graphql({
-    session: {
-      id: `offline_${session.shop}`,
-      shop: session.shop,
-      accessToken: session.access_token,
-      state: 'authenticated',
-      isOnline: session.is_online,
-      scope: session.scope || '',
-    } as any,
-  })
-
-  return client
+  if (!session) throw new Error('No valid session found for shop')
+  return new shopify.clients.Graphql({ session: makeSession(session) })
 }
 
 export async function getShopifyRestClient(shop: string) {
   const session = await getShopifySession(shop)
-
-  if (!session) {
-    throw new Error('No valid session found for shop')
-  }
-
-  const client = new shopify.clients.Rest({
-    session: {
-      id: `offline_${session.shop}`,
-      shop: session.shop,
-      accessToken: session.access_token,
-      state: 'authenticated',
-      isOnline: session.is_online,
-      scope: session.scope || '',
-    } as any,
-  })
-
-  return client
+  if (!session) throw new Error('No valid session found for shop')
+  return new shopify.clients.Rest({ session: makeSession(session) })
 }
 
-// Helper function to get shop's online store URL
 export async function getShopOnlineStoreUrl(shop: string): Promise<string | null> {
   try {
-    const client = await getShopifyGraphQLClient(shop)
-
-    const response = await client.query({
-      data: {
-        query: `{
-          shop {
-            primaryDomain {
-              url
-            }
-          }
-        }`,
-      },
-    })
-
-    const data = response.body as any
-    return data?.data?.shop?.primaryDomain?.url || null
+    const data = await shopifyGraphQL(shop, `{ shop { primaryDomain { url } } }`)
+    return data?.shop?.primaryDomain?.url || null
   } catch (error) {
-    console.error('[getShopOnlineStoreUrl] Error fetching shop online store URL:', error instanceof Error ? error.message : error)
+    console.error('[getShopOnlineStoreUrl] Error:', error instanceof Error ? error.message : error)
     return null
   }
 }
