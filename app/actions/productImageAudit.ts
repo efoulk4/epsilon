@@ -37,7 +37,7 @@ interface ProductData {
   handle: string
   descriptionHtml: string
   seo: { title: string; description: string }
-  images: { id: string; url: string; altText: string | null }[]
+  images: { id: string; mediaId: string; url: string; altText: string | null }[]
 }
 
 const PRODUCT_AUDIT_QUERY = `
@@ -52,6 +52,14 @@ const PRODUCT_AUDIT_QUERY = `
         seo { title description }
         images(first: 20) {
           nodes { id url altText }
+        }
+        media(first: 20) {
+          nodes {
+            ... on MediaImage {
+              id
+              image { url }
+            }
+          }
         }
       }
     }
@@ -69,17 +77,31 @@ async function fetchAllProducts(shop: string): Promise<ProductData[]> {
     if (!page) break
 
     for (const p of page.nodes) {
+      // Build a URL → MediaImage GID lookup from the media nodes
+      const mediaIdByUrl: Record<string, string> = {}
+      for (const m of (p.media?.nodes || [])) {
+        if (m.id && m.image?.url) {
+          // Strip query params for matching
+          const baseUrl = m.image.url.split('?')[0]
+          mediaIdByUrl[baseUrl] = m.id
+        }
+      }
+
       products.push({
         id: p.id.replace('gid://shopify/Product/', ''),
         title: p.title,
         handle: p.handle,
         descriptionHtml: p.descriptionHtml || '',
         seo: { title: p.seo?.title || '', description: p.seo?.description || '' },
-        images: p.images.nodes.map((img: any) => ({
-          id: img.id,
-          url: img.url,
-          altText: img.altText,
-        })),
+        images: p.images.nodes.map((img: any) => {
+          const baseUrl = img.url.split('?')[0]
+          return {
+            id: img.id,
+            mediaId: mediaIdByUrl[baseUrl] || img.id,
+            url: img.url,
+            altText: img.altText,
+          }
+        }),
       })
     }
 
@@ -148,7 +170,7 @@ export async function runProductImageAudit(
             target,
             failureSummary: `Product "${product.title}" has an image with no alt text.`,
             _imageSrc: image.url,
-            _imageId: image.id,
+            _imageId: image.mediaId,
             _fixType: 'image-alt',
             ...commonFields,
           })
@@ -159,7 +181,7 @@ export async function runProductImageAudit(
             failureSummary: `Product "${product.title}" has generic image alt text: "${image.altText}".`,
             _imageSrc: image.url,
             _genericAlt: image.altText,
-            _imageId: image.id,
+            _imageId: image.mediaId,
             _fixType: 'image-alt',
             ...commonFields,
           })
