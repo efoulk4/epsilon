@@ -42,9 +42,10 @@ export async function GET(request: NextRequest) {
 
     return response
   } catch (error) {
-    console.error('Error starting OAuth:', error)
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('Error starting OAuth:', message)
     return NextResponse.json(
-      { error: 'Failed to start OAuth flow' },
+      { error: 'Failed to start OAuth flow', details: message },
       { status: 500 }
     )
   }
