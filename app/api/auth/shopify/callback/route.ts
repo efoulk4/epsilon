@@ -1,37 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { shopifyApi, ApiVersion, Session } from '@shopify/shopify-api'
-import '@shopify/shopify-api/adapters/node'
-import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
+import { saveShopifySession } from '@/app/utils/shopifySession'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 import { encrypt } from '@/app/utils/encryption'
 
-const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY!,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET!,
-  scopes: process.env.SHOPIFY_SCOPES?.split(',') || ['read_products', 'write_products'],
-  hostName: process.env.SHOPIFY_APP_URL!.replace(/https?:\/\//, ''),
-  hostScheme: 'https',
-  apiVersion: ApiVersion.October24,
-  isEmbeddedApp: true,
-})
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!
+const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET!
+const SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL!
 
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+function verifyHmac(params: URLSearchParams, secret: string): boolean {
+  const hmac = params.get('hmac')
+  if (!hmac) return false
 
-const APP_URL = process.env.SHOPIFY_APP_URL!
+  const pairs: string[] = []
+  params.forEach((value, key) => {
+    if (key !== 'hmac') {
+      pairs.push(`${key}=${value}`)
+    }
+  })
+  pairs.sort()
+  const message = pairs.join('&')
 
-/**
- * Register mandatory Shopify webhooks for this shop via the REST Admin API.
- * Called after every OAuth install/re-install. Shopify deduplicates by topic+address,
- * so registering an already-registered webhook is safe.
- */
+  const digest = crypto
+    .createHmac('sha256', secret)
+    .update(message)
+    .digest('hex')
+
+  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))
+}
+
 async function registerWebhooks(shop: string, accessToken: string): Promise<void> {
   const webhooks = [
-    { topic: 'app/uninstalled',        address: `${APP_URL}/api/webhooks/shopify/app-uninstalled` },
-    { topic: 'customers/data_request', address: `${APP_URL}/api/webhooks/shopify/customers-data-request` },
-    { topic: 'customers/redact',       address: `${APP_URL}/api/webhooks/shopify/customers-redact` },
-    { topic: 'shop/redact',            address: `${APP_URL}/api/webhooks/shopify/shop-redact` },
+    { topic: 'app/uninstalled',        address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/app-uninstalled` },
+    { topic: 'customers/data_request', address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-data-request` },
+    { topic: 'customers/redact',       address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-redact` },
+    { topic: 'shop/redact',            address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/shop-redact` },
   ]
 
   for (const webhook of webhooks) {
@@ -44,9 +47,7 @@ async function registerWebhooks(shop: string, accessToken: string): Promise<void
         },
         body: JSON.stringify({ webhook: { topic: webhook.topic, address: webhook.address, format: 'json' } }),
       })
-
       if (!res.ok && res.status !== 422) {
-        // 422 = webhook already exists — not an error
         console.error(`[registerWebhooks] Failed to register ${webhook.topic}: ${res.status}`)
       }
     } catch (err) {
@@ -58,124 +59,95 @@ async function registerWebhooks(shop: string, accessToken: string): Promise<void
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const shop = searchParams.get('shop')
+  const code = searchParams.get('code')
+  const state = searchParams.get('state')
   const host = searchParams.get('host')
 
-  if (!shop) {
-    return NextResponse.json({ error: 'Missing shop parameter' }, { status: 400 })
+  if (!shop || !code || !state) {
+    return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 })
   }
 
-  // SECURITY: Rate limiting - prevent OAuth callback abuse
+  // SECURITY: Rate limiting
   const rateLimit = await checkRateLimit(`oauth:${shop}`, RATE_LIMITS.oauth)
   if (!rateLimit.allowed) {
-    return NextResponse.json(
-      {
-        error: 'Rate limit exceeded',
-        details: 'Too many OAuth attempts. Please try again later.',
-      },
-      { status: 429 }
-    )
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+  }
+
+  // SECURITY: Verify HMAC
+  if (!verifyHmac(searchParams, SHOPIFY_API_SECRET)) {
+    console.error('[OAuth Callback] HMAC verification failed for shop:', shop)
+    return NextResponse.json({ error: 'HMAC verification failed' }, { status: 400 })
+  }
+
+  // SECURITY: Verify state cookie matches to prevent CSRF
+  const storedState = request.cookies.get('shopify_oauth_state')?.value
+  if (!storedState || storedState !== state) {
+    console.error('[OAuth Callback] State mismatch — possible CSRF attack')
+    return NextResponse.json({ error: 'Invalid state parameter' }, { status: 400 })
+  }
+
+  // SECURITY: Validate shop domain
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop)) {
+    return NextResponse.json({ error: 'Invalid shop domain' }, { status: 400 })
   }
 
   try {
-    // SECURITY: Complete OAuth with automatic state and HMAC verification
-    // shopify.auth.callback() validates:
-    // - State parameter matches (CSRF protection)
-    // - HMAC signature is valid (request authenticity)
-    // - Shop domain is valid
-    const callbackResponse = await shopify.auth.callback({
-      rawRequest: request as any,
+    // Exchange code for access token
+    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: SHOPIFY_API_KEY,
+        client_secret: SHOPIFY_API_SECRET,
+        code,
+      }),
     })
 
-    const { session } = callbackResponse
-
-    // SECURITY: Additional validation - ensure session shop matches query param
-    if (session.shop !== shop) {
-      console.error('[OAuth Callback] Shop mismatch - session:', session.shop, 'query:', shop)
-      return NextResponse.json(
-        { error: 'OAuth session mismatch' },
-        { status: 400 }
-      )
+    if (!tokenRes.ok) {
+      const body = await tokenRes.text()
+      console.error('[OAuth Callback] Token exchange failed:', tokenRes.status, body)
+      return NextResponse.json({ error: 'Token exchange failed' }, { status: 500 })
     }
 
-    // Store session in Supabase
-    if (supabaseUrl && supabaseServiceKey) {
-      console.log('[OAuth Callback] Storing session for shop:', session.shop)
+    const { access_token, scope } = await tokenRes.json()
 
-      const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        },
-        db: {
-          schema: 'public'
-        },
-        global: {
-          headers: {
-            'apikey': supabaseServiceKey
-          }
-        }
-      })
-
-      // SECURITY: Encrypt access token before storing
-      if (!session.accessToken) {
-        console.error('[OAuth Callback] Missing access token in session')
-        return NextResponse.json(
-          { error: 'OAuth flow incomplete - missing access token' },
-          { status: 500 }
-        )
-      }
-
-      const encryptedToken = encrypt(session.accessToken)
-
-      const { data, error } = await supabase.from('shopify_sessions').upsert({
-        shop: session.shop,
-        access_token: encryptedToken, // Store encrypted, not plaintext
-        scope: session.scope,
-        expires_at: session.expires ? new Date(session.expires).toISOString() : null,
-        is_online: session.isOnline,
-        updated_at: new Date().toISOString(),
-      }).select()
-
-      if (error) {
-        console.error('[OAuth Callback] Failed to store session in Supabase', error.code, error.message)
-      } else {
-        console.log('[OAuth Callback] Session stored successfully for shop:', session.shop)
-        // SECURITY: Do not log session data (contains access tokens)
-      }
-    } else {
-      console.error('[OAuth Callback] Supabase credentials missing')
+    if (!access_token) {
+      console.error('[OAuth Callback] No access token in response')
+      return NextResponse.json({ error: 'No access token received' }, { status: 500 })
     }
 
-    // Register mandatory Shopify webhooks (idempotent — safe to call on every install/re-install)
-    await registerWebhooks(session.shop, session.accessToken!)
+    console.log('[OAuth Callback] Token received for shop:', shop)
 
-    // SECURITY: Use verified session shop for redirect, not query params
-    // This prevents attacker-controlled values from influencing post-auth state
-    const redirectUrl = new URL('/', process.env.SHOPIFY_APP_URL!)
-    redirectUrl.searchParams.set('shop', session.shop) // Use verified shop from session
+    // Save session to Supabase
+    const saved = await saveShopifySession({
+      shop,
+      accessToken: access_token,
+      scope,
+      isOnline: false,
+    })
 
-    // SECURITY: Validate host parameter if present
-    // Shopify host format: base64(shop/admin)
-    if (host) {
-      try {
-        const decodedHost = Buffer.from(host, 'base64').toString('utf-8')
-        // Verify host contains the verified shop domain
-        if (decodedHost.includes(session.shop)) {
-          redirectUrl.searchParams.set('host', host)
-        } else {
-          console.error('[OAuth Callback] Host parameter does not match verified shop')
-        }
-      } catch (error) {
-        console.error('[OAuth Callback] Invalid host parameter')
-      }
+    if (!saved) {
+      console.error('[OAuth Callback] Failed to save session for shop:', shop)
+      return NextResponse.json({ error: 'Failed to save session' }, { status: 500 })
     }
 
-    return NextResponse.redirect(redirectUrl)
+    console.log('[OAuth Callback] Session saved successfully for shop:', shop)
+
+    // Register webhooks
+    await registerWebhooks(shop, access_token)
+
+    // Clear state cookie and redirect to app
+    const redirectUrl = new URL('/', SHOPIFY_APP_URL)
+    redirectUrl.searchParams.set('shop', shop)
+    if (host) redirectUrl.searchParams.set('host', host)
+
+    const response = NextResponse.redirect(redirectUrl.toString())
+    response.cookies.delete('shopify_oauth_state')
+
+    return response
   } catch (error) {
-    console.error('OAuth callback error:', error)
-    return NextResponse.json(
-      { error: 'Failed to complete OAuth flow' },
-      { status: 500 }
-    )
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[OAuth Callback] Error:', message)
+    return NextResponse.json({ error: 'OAuth callback failed', details: message }, { status: 500 })
   }
 }

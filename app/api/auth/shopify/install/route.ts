@@ -1,44 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { shopifyApi, ApiVersion } from '@shopify/shopify-api'
-import '@shopify/shopify-api/adapters/node'
+import crypto from 'crypto'
 
-const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY!,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET!,
-  scopes: process.env.SHOPIFY_SCOPES?.split(',') || ['read_products', 'write_products'],
-  hostName: process.env.SHOPIFY_APP_URL!.replace(/https?:\/\//, ''),
-  hostScheme: 'https',
-  apiVersion: ApiVersion.October24,
-  isEmbeddedApp: true,
-})
+const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY!
+const SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products'
+const SHOPIFY_APP_URL = process.env.SHOPIFY_APP_URL!
 
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams
-  const shop = searchParams.get('shop')
+  const shop = request.nextUrl.searchParams.get('shop')
 
   if (!shop) {
     return NextResponse.json({ error: 'Missing shop parameter' }, { status: 400 })
   }
 
+  // Validate shop domain format
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$/.test(shop)) {
+    return NextResponse.json({ error: 'Invalid shop domain' }, { status: 400 })
+  }
+
   try {
-    // Validate shop domain
-    const sanitizedShop = shopify.utils.sanitizeShop(shop, true)
+    // Generate a random nonce for CSRF protection
+    const state = crypto.randomBytes(16).toString('hex')
 
-    if (!sanitizedShop) {
-      return NextResponse.json({ error: 'Invalid shop domain' }, { status: 400 })
-    }
+    const redirectUri = `${SHOPIFY_APP_URL}/api/auth/shopify/callback`
 
-    // Generate OAuth authorization URL
-    const authUrl = await shopify.auth.begin({
-      shop: sanitizedShop,
-      callbackPath: '/api/auth/shopify/callback',
-      isOnline: false, // Offline access for server-side API calls
-      rawRequest: request as any,
+    const authUrl = new URL(`https://${shop}/admin/oauth/authorize`)
+    authUrl.searchParams.set('client_id', SHOPIFY_API_KEY)
+    authUrl.searchParams.set('scope', SHOPIFY_SCOPES)
+    authUrl.searchParams.set('redirect_uri', redirectUri)
+    authUrl.searchParams.set('state', state)
+
+    // Store state in a cookie for CSRF verification in the callback
+    const response = NextResponse.redirect(authUrl.toString())
+    response.cookies.set('shopify_oauth_state', state, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      maxAge: 60 * 10, // 10 minutes
+      path: '/',
     })
-
-    // Redirect to Shopify OAuth with ngrok bypass header
-    const response = NextResponse.redirect(authUrl)
-    response.headers.set('ngrok-skip-browser-warning', 'true')
 
     return response
   } catch (error) {
