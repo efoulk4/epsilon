@@ -119,44 +119,32 @@ export async function auditSingleProduct(
 }
 
 /**
- * Send a Shopify Admin inbox notification to the merchant.
- * Requires write_notifications scope.
+ * Persist a product violation notification to Supabase.
+ * The merchant sees it as a banner the next time they open the app.
  */
-export async function sendShopifyNotification(
+export async function saveProductNotification(
   shop: string,
-  accessToken: string,
-  title: string,
-  message: string,
-  actionUrl?: string
+  productId: string | number,
+  summary: ProductViolationSummary
 ): Promise<void> {
-  const mutation = `
-    mutation CreateAppNotification($title: String!, $message: String!, $actionUrl: URL) {
-      appPushNotificationCreate(notification: {
-        title: $title
-        body: $message
-        redirectUrl: $actionUrl
-      }) {
-        userErrors { field message }
-      }
-    }
-  `
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !supabaseServiceKey) return
 
-  try {
-    const res = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': accessToken,
-      },
-      body: JSON.stringify({ query: mutation, variables: { title, message, actionUrl } }),
-    })
+  const { createClient } = await import('@supabase/supabase-js')
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
 
-    const json = await res.json()
-    const errors = json?.data?.appPushNotificationCreate?.userErrors
-    if (errors?.length) {
-      console.error('[sendShopifyNotification] userErrors:', JSON.stringify(errors))
-    }
-  } catch (err) {
-    console.error('[sendShopifyNotification] Failed:', err instanceof Error ? err.message : err)
+  const { error } = await supabase.from('product_notifications').insert({
+    shop,
+    product_id: String(productId),
+    product_title: summary.productTitle,
+    product_handle: summary.productHandle,
+    violations: summary.violations,
+  })
+
+  if (error) {
+    console.error('[saveProductNotification] Failed:', error.message)
   }
 }

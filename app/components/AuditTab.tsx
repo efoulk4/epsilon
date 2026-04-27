@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useIdToken } from '../hooks/useIdToken'
 import { useIsEmbedded } from '../hooks/useIsEmbedded'
 import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../actions/audit'
 import { runProductImageAudit } from '../actions/productImageAudit'
+import { getUnseenNotifications, markNotificationsSeen, type ProductNotification } from '../actions/notifications'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
@@ -75,6 +76,23 @@ export function AuditTab() {
   const [copiedKeys, setCopiedKeys] = useState<Set<string>>(new Set())
   const [urlInput, setUrlInput] = useState('')
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
+  const [pendingNotifications, setPendingNotifications] = useState<ProductNotification[]>([])
+
+  // Load unseen product notifications on mount (embedded mode only)
+  useEffect(() => {
+    if (!isEmbedded || !shop) return
+    getIdToken().then((token) =>
+      getUnseenNotifications(token).then(setPendingNotifications).catch(() => {})
+    )
+  }, [isEmbedded, shop])
+
+  const dismissNotifications = useCallback(async () => {
+    const ids = pendingNotifications.map((n) => n.id)
+    setPendingNotifications([])
+    const token = await getIdToken()
+    await markNotificationsSeen(ids, token).catch(() => {})
+  }, [pendingNotifications])
+
   const [productContentModal, setProductContentModal] = useState<{
     fixType: 'seo-title' | 'seo-description' | 'product-title' | 'product-description'
     productId: string
@@ -299,6 +317,28 @@ export function AuditTab() {
 
   return (
     <BlockStack gap="500">
+      {/* Pending product violation notifications */}
+      {pendingNotifications.length > 0 && (
+        <Banner
+          title={`Accessibility issues detected in ${pendingNotifications.length} product${pendingNotifications.length === 1 ? '' : 's'}`}
+          tone="warning"
+          onDismiss={dismissNotifications}
+        >
+          <BlockStack gap="200">
+            {pendingNotifications.map((n) => (
+              <Text key={n.id} as="p" variant="bodyMd">
+                <strong>{n.product_title}</strong>
+                {': '}
+                {n.violations.map((v) => v.description).join(', ')}
+              </Text>
+            ))}
+            <Text as="p" variant="bodySm" tone="subdued">
+              Run a full audit to review and fix these issues.
+            </Text>
+          </BlockStack>
+        </Banner>
+      )}
+
       {/* Shopify Store Audit Card - Only shown in embedded mode */}
       {isEmbedded && shop && (
         <Card>
