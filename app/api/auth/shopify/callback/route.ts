@@ -35,6 +35,8 @@ async function registerWebhooks(shop: string, accessToken: string): Promise<void
     { topic: 'customers/data_request', address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-data-request` },
     { topic: 'customers/redact',       address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-redact` },
     { topic: 'shop/redact',            address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/shop-redact` },
+    { topic: 'products/create',        address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/products-create` },
+    { topic: 'products/update',        address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/products-update` },
   ]
 
   for (const webhook of webhooks) {
@@ -92,14 +94,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Exchange code for access token
+    // Exchange code for expiring offline access token
     const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
         client_id: SHOPIFY_API_KEY,
         client_secret: SHOPIFY_API_SECRET,
         code,
+        expiring: '1',
       }),
     })
 
@@ -109,21 +112,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Token exchange failed' }, { status: 500 })
     }
 
-    const { access_token, scope } = await tokenRes.json()
+    const {
+      access_token,
+      scope,
+      expires_in,
+      refresh_token,
+      refresh_token_expires_in,
+    } = await tokenRes.json()
 
     if (!access_token) {
       console.error('[OAuth Callback] No access token in response')
       return NextResponse.json({ error: 'No access token received' }, { status: 500 })
     }
 
-    console.log('[OAuth Callback] Token received for shop:', shop)
+    console.log('[OAuth Callback] Token received for shop:', shop, '| expiring:', !!refresh_token)
 
-    // Save session to Supabase
+    const now = new Date()
     const saved = await saveShopifySession({
       shop,
       accessToken: access_token,
       scope,
-      isOnline: true,
+      expiresAt: expires_in ? new Date(now.getTime() + expires_in * 1000) : undefined,
+      refreshToken: refresh_token || undefined,
+      refreshTokenExpiresAt: refresh_token_expires_in
+        ? new Date(now.getTime() + refresh_token_expires_in * 1000)
+        : undefined,
+      isOnline: false,
     })
 
     if (!saved) {

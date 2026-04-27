@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set('scope', SHOPIFY_SCOPES)
     authUrl.searchParams.set('redirect_uri', redirectUri)
     authUrl.searchParams.set('state', state)
-    authUrl.searchParams.set('grant_options[]', 'per-user')
+    // No grant_options = offline access token (permanent, for server-side API calls)
+    // Online/per-user tokens expire with the merchant session and can't be used server-side
 
     // Store state in a cookie for CSRF verification in the callback
     const response = NextResponse.redirect(authUrl.toString())
