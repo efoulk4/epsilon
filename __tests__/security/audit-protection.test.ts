@@ -60,7 +60,7 @@ describe('EPS-003: Audit Protection Security', () => {
       const result = await runAccessibilityAuditForShop()
 
       expect(result).toHaveProperty('error')
-      expect(result.error).toContain('Failed to run audit for shop')
+      expect((result as any).error).toContain('Failed to run audit for shop')
 
       // CRITICAL: Verify expensive browser was NOT launched
       expect(chromium.launch).not.toHaveBeenCalled()
@@ -79,7 +79,7 @@ describe('EPS-003: Audit Protection Security', () => {
       const result = await runAccessibilityAuditForShop()
 
       expect(result).toHaveProperty('error', 'Rate limit exceeded')
-      expect(result.details).toContain('Too many audits')
+      expect((result as any).details).toContain('Too many audits')
 
       // CRITICAL: Verify expensive browser was NOT launched
       expect(chromium.launch).not.toHaveBeenCalled()
@@ -239,7 +239,7 @@ describe('EPS-003: Audit Protection Security', () => {
 
       const result = await runAccessibilityAuditForShop()
 
-      expect(result.error).toBe('Rate limit exceeded')
+      expect((result as any).error).toBe('Rate limit exceeded')
 
       // Verify rate limit key includes the shop (tenant-specific)
       expect(checkRateLimit).toHaveBeenCalledWith(

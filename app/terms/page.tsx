@@ -4,7 +4,7 @@ export const metadata = {
 
 export default function TermsOfService() {
   const lastUpdated = 'April 24, 2026'
-  const contactEmail = 'support@epsilon-xi.vercel.app'
+  const contactEmail = 'evanfoulk4@gmail.com'
   const appUrl = 'https://epsilon-xi.vercel.app'
 
   return (

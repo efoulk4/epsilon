@@ -45,8 +45,8 @@ export async function generateAltText(
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
-    // Fetch the image
-    const imageResponse = await fetch(imageUrl)
+    // Fetch the image — redirect: 'error' prevents SSRF via open redirect
+    const imageResponse = await fetch(imageUrl, { redirect: 'error' })
     if (!imageResponse.ok) {
       return {
         success: false,

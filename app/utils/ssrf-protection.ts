@@ -202,11 +202,8 @@ function isBlockedIP(ip: string): boolean {
  * Validate Shopify store URL specifically
  */
 export async function validateShopifyStoreURL(shop: string): Promise<URLValidationResult> {
-  // Construct the URL
-  const url = `https://${shop}`
-
-  // Validate it's a proper .myshopify.com domain
-  if (!shop.endsWith('.myshopify.com')) {
+  // Validate it's a proper .myshopify.com domain with reasonable length
+  if (!shop.endsWith('.myshopify.com') || shop.length > 100 || shop.length < 14) {
     return {
       allowed: false,
       error: 'Only .myshopify.com domains are allowed',
@@ -214,7 +211,7 @@ export async function validateShopifyStoreURL(shop: string): Promise<URLValidati
   }
 
   // Run standard SSRF validation
-  return await validateURL(url)
+  return await validateURL(`https://${shop}`)
 }
 
 /**

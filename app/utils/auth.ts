@@ -5,16 +5,21 @@ import { shopifyApi, ApiVersion, Session } from '@shopify/shopify-api'
 import '@shopify/shopify-api/adapters/node'
 import { isValidShopDomain } from './validation'
 
+let _shopify: ReturnType<typeof shopifyApi> | null = null
+
 function getShopify() {
-  return shopifyApi({
-    apiKey: process.env.SHOPIFY_API_KEY!,
-    apiSecretKey: process.env.SHOPIFY_API_SECRET!,
-    scopes: process.env.SHOPIFY_SCOPES?.split(',') || ['read_products', 'write_products'],
-    hostName: process.env.SHOPIFY_APP_URL!.replace(/https?:\/\//, ''),
-    hostScheme: 'https',
-    apiVersion: ApiVersion.October24,
-    isEmbeddedApp: true,
-  })
+  if (!_shopify) {
+    _shopify = shopifyApi({
+      apiKey: process.env.SHOPIFY_API_KEY!,
+      apiSecretKey: process.env.SHOPIFY_API_SECRET!,
+      scopes: process.env.SHOPIFY_SCOPES?.split(',') || ['read_products', 'write_products'],
+      hostName: process.env.SHOPIFY_APP_URL!.replace(/https?:\/\//, ''),
+      hostScheme: 'https',
+      apiVersion: ApiVersion.October24,
+      isEmbeddedApp: true,
+    })
+  }
+  return _shopify
 }
 
 

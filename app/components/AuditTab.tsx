@@ -327,7 +327,14 @@ export function AuditTab() {
 
       {error && (
         <Banner title="Audit Failed" tone="critical" onDismiss={() => setError(null)}>
-          <p>{error}</p>
+          <BlockStack gap="200">
+            <p>{error}</p>
+            {isEmbedded && (
+              <Box>
+                <Button size="slim" onClick={handleAuditMyStore}>Try Again</Button>
+              </Box>
+            )}
+          </BlockStack>
         </Banner>
       )}
 
