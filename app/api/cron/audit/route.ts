@@ -1,3 +1,5 @@
+export const maxDuration = 300
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase'
 import { getShopifySession } from '@/app/utils/shopifySession'

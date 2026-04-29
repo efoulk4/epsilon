@@ -119,82 +119,100 @@ export function mergeViolations(allViolations: any[][]): any[] {
   return Array.from(map.values())
 }
 
-export async function discoverPagesFromSitemap(origin: string): Promise<{
-  productUrl: string | null
-  collectionUrl: string | null
-}> {
-  const result = { productUrl: null as string | null, collectionUrl: null as string | null }
-
+async function fetchSitemapUrls(sitemapUrl: string): Promise<string[]> {
   try {
-    const sitemapRes = await fetch(`${origin}/sitemap.xml`, {
+    const res = await fetch(sitemapUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0' },
       redirect: 'error',
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(15000),
     })
-    if (!sitemapRes.ok) return result
+    if (!res.ok) return []
+    const xml = await res.text()
+    return [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim())
+  } catch {
+    return []
+  }
+}
 
-    const sitemapXml = await sitemapRes.text()
-    const locMatches = [...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g)]
-    const subSitemapUrls = locMatches.map((m) => m[1].trim())
+export async function discoverAllPages(origin: string): Promise<string[]> {
+  const discovered = new Set<string>()
+  discovered.add(origin)
 
-    const rootSitemaps = subSitemapUrls.filter((u) => {
+  try {
+    const rootUrls = await fetchSitemapUrls(`${origin}/sitemap.xml`)
+
+    // Shopify sitemap.xml contains sub-sitemap URLs, not page URLs directly
+    const subSitemaps = rootUrls.filter((u) => {
       try { return new URL(u).pathname.startsWith('/sitemap_') } catch { return false }
     })
 
-    const productsSitemap = rootSitemaps.find((u) => new URL(u).pathname.includes('sitemap_products'))
-    const collectionsSitemap = rootSitemaps.find((u) => new URL(u).pathname.includes('sitemap_collections'))
+    // If no sub-sitemaps, treat root urls as page urls
+    const urlSources = subSitemaps.length > 0 ? subSitemaps : rootUrls
 
-    async function getFirstUrl(sitemapUrl: string, pathPrefix: string): Promise<string | null> {
-      try {
-        const res = await fetch(sitemapUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0' },
-          redirect: 'error',
-          signal: AbortSignal.timeout(10000),
+    await Promise.all(
+      urlSources.map(async (sitemapUrl) => {
+        const urls = await fetchSitemapUrls(sitemapUrl)
+        urls.forEach((u) => {
+          try {
+            const parsed = new URL(u)
+            if (parsed.origin === origin) discovered.add(u)
+          } catch {}
         })
-        if (!res.ok) return null
-        const xml = await res.text()
-        const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].trim())
-        return urls.find((u) => new URL(u).pathname.startsWith(pathPrefix)) || null
-      } catch {
-        return null
-      }
-    }
-
-    if (productsSitemap) result.productUrl = await getFirstUrl(productsSitemap, '/products/')
-    if (collectionsSitemap) result.collectionUrl = await getFirstUrl(collectionsSitemap, '/collections/')
+      })
+    )
   } catch (err) {
-    console.error('[discoverPagesFromSitemap] Failed:', err instanceof Error ? err.message : err)
+    console.error('[discoverAllPages] Failed:', err instanceof Error ? err.message : err)
   }
 
-  return result
+  return Array.from(discovered)
+}
+
+async function scanWithConcurrency(
+  context: any,
+  urls: string[],
+  concurrency: number = 3
+): Promise<any[][]> {
+  const results: any[][] = []
+  const queue = [...urls]
+
+  async function worker() {
+    while (queue.length > 0) {
+      const pageUrl = queue.shift()!
+      try {
+        const page = await navigatePage(context, pageUrl)
+        results.push(await scanSinglePage(page, pageUrl))
+        await page.close()
+      } catch (err) {
+        console.error(`[discoverAndScan] Failed to scan ${pageUrl}:`, err instanceof Error ? err.message : err)
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, worker))
+  return results
 }
 
 /**
- * Navigate to origin + discovered sub-pages, scan all with Axe, return merged AuditResult.
+ * Discover all pages from sitemap and scan every one with Axe.
  * Shared between manual audit and cron audit.
  */
 export async function discoverAndScan(context: any, url: string): Promise<AuditResult> {
   const origin = new URL(url).origin
-  const { productUrl, collectionUrl } = await discoverPagesFromSitemap(origin)
 
-  const urlsToScan: string[] = [url]
-  if (productUrl && (await validateURL(productUrl)).allowed) urlsToScan.push(productUrl)
-  if (collectionUrl && (await validateURL(collectionUrl)).allowed && !urlsToScan.includes(collectionUrl)) {
-    urlsToScan.push(collectionUrl)
-  }
+  const allDiscovered = await discoverAllPages(origin)
 
-  console.log(`[discoverAndScan] Scanning ${urlsToScan.length} pages:`, urlsToScan)
+  // Validate all URLs for SSRF before scanning
+  const validated = (
+    await Promise.all(
+      allDiscovered.map(async (u) => ({ u, ok: (await validateURL(u)).allowed }))
+    )
+  ).filter((x) => x.ok).map((x) => x.u)
 
-  const allViolations: any[][] = []
-  for (const pageUrl of urlsToScan) {
-    try {
-      const page = await navigatePage(context, pageUrl)
-      allViolations.push(await scanSinglePage(page, pageUrl))
-      await page.close()
-    } catch (err) {
-      console.error(`[discoverAndScan] Failed to scan ${pageUrl}:`, err instanceof Error ? err.message : err)
-    }
-  }
+  const urlsToScan = validated.length > 0 ? validated : [url]
+
+  console.log(`[discoverAndScan] Scanning ${urlsToScan.length} pages`)
+
+  const allViolations = await scanWithConcurrency(context, urlsToScan, 3)
 
   const violations = mergeViolations(allViolations)
 
