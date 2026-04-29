@@ -242,3 +242,69 @@ export async function getAuditHistory(
     return []
   }
 }
+
+export interface ScheduledAuditNotification {
+  id: string
+  timestamp: string
+  totalViolations: number
+  violationsByImpact: { critical: number; serious: number; moderate: number; minor: number }
+  violations: AuditResult['violations']
+  url: string
+  healthScore: number
+}
+
+export async function getUnseenScheduledAudits(
+  idToken?: string
+): Promise<ScheduledAuditNotification[]> {
+  if (!isSupabaseConfigured) return []
+
+  try {
+    const shop = await requireVerifiedShop(idToken)
+    const supabaseAdmin = getSupabaseAdmin()
+
+    const { data, error } = await supabaseAdmin
+      .from('audits')
+      .select('*')
+      .eq('shop', shop)
+      .eq('source', 'scheduled')
+      .eq('seen', false)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('[getUnseenScheduledAudits] Database error:', error.message)
+      return []
+    }
+
+    return (
+      data?.map((row) => ({
+        id: row.id,
+        url: row.url,
+        timestamp: row.timestamp,
+        totalViolations: row.total_violations,
+        violations: row.violations,
+        violationsByImpact: row.violations_by_impact,
+        healthScore: row.health_score,
+      })) || []
+    )
+  } catch (error) {
+    console.error('[getUnseenScheduledAudits] Error:', error)
+    return []
+  }
+}
+
+export async function markAuditSeen(auditId: string, idToken?: string): Promise<void> {
+  if (!isSupabaseConfigured) return
+
+  try {
+    const shop = await requireVerifiedShop(idToken)
+    const supabaseAdmin = getSupabaseAdmin()
+
+    await supabaseAdmin
+      .from('audits')
+      .update({ seen: true })
+      .eq('id', auditId)
+      .eq('shop', shop)
+  } catch (error) {
+    console.error('[markAuditSeen] Error:', error)
+  }
+}

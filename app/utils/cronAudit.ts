@@ -53,6 +53,8 @@ export async function runCronAudit(shop: string): Promise<boolean> {
       violations: result.violations,
       violations_by_impact: result.violationsByImpact,
       health_score: healthScore,
+      source: 'scheduled',
+      seen: false,
     })
 
     if (error) {
