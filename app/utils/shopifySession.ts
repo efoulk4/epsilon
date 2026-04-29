@@ -15,6 +15,7 @@ export interface ShopifySession {
   refresh_token_expires_at: string | null
   is_online: boolean
   plan: ShopPlan
+  trial_ends_at: string | null
 }
 
 function makeSupabaseClient() {
@@ -69,6 +70,7 @@ export async function saveShopifySession(session: {
   refreshTokenExpiresAt?: Date
   isOnline: boolean
   plan?: ShopPlan
+  trialEndsAt?: Date | null
 }): Promise<boolean> {
   const supabase = makeSupabaseClient()
   if (!supabase) {
@@ -91,8 +93,9 @@ export async function saveShopifySession(session: {
     is_online: session.isOnline,
     updated_at: new Date().toISOString(),
   }
-  if (session.plan !== undefined) {
-    upsertData.plan = session.plan
+  if (session.plan !== undefined) upsertData.plan = session.plan
+  if (session.trialEndsAt !== undefined) {
+    upsertData.trial_ends_at = session.trialEndsAt ? session.trialEndsAt.toISOString() : null
   }
 
   const { error } = await supabase.from('shopify_sessions').upsert(upsertData, { onConflict: 'shop' })

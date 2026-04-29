@@ -11,6 +11,38 @@ const PLANS: Record<string, { name: string; price: string; plan: ShopPlan }> = {
   pro: { name: 'Pro', price: '29.00', plan: 'pro' },
 }
 
+export interface PlanStatus {
+  plan: ShopPlan
+  trialActive: boolean
+  trialEndsAt: string | null
+  trialDaysLeft: number | null
+  effectivePlan: ShopPlan | 'trial'
+}
+
+export async function getPlanStatus(idToken?: string): Promise<PlanStatus> {
+  try {
+    const shop = await requireVerifiedShop(idToken)
+    const session = await getShopifySession(shop)
+
+    const plan = session?.plan ?? 'free'
+    const trialEndsAt = session?.trial_ends_at ?? null
+    const trialActive = trialEndsAt ? new Date(trialEndsAt) > new Date() : false
+    const trialDaysLeft = trialActive
+      ? Math.ceil((new Date(trialEndsAt!).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      : null
+
+    return {
+      plan,
+      trialActive,
+      trialEndsAt,
+      trialDaysLeft,
+      effectivePlan: trialActive ? 'trial' : plan,
+    }
+  } catch {
+    return { plan: 'free', trialActive: false, trialEndsAt: null, trialDaysLeft: null, effectivePlan: 'free' }
+  }
+}
+
 export async function createSubscription(
   planKey: 'basic' | 'pro',
   idToken?: string
@@ -105,17 +137,5 @@ export async function cancelSubscription(
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Cancel error' }
-  }
-}
-
-export async function getCurrentPlan(
-  idToken?: string
-): Promise<{ plan: ShopPlan; error?: string }> {
-  try {
-    const shop = await requireVerifiedShop(idToken)
-    const session = await getShopifySession(shop)
-    return { plan: session?.plan ?? 'free' }
-  } catch {
-    return { plan: 'free', error: 'Could not fetch plan' }
   }
 }

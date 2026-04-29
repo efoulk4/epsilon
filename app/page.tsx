@@ -11,33 +11,31 @@ const HistoryTab = dynamic(
   { ssr: false, loading: () => <Spinner size="large" /> }
 )
 
+const BillingTab = dynamic(
+  () => import('./components/BillingTab').then((m) => m.BillingTab),
+  { ssr: false, loading: () => <Spinner size="large" /> }
+)
+
 export default function Dashboard() {
   const { isEmbedded, shop } = useIsEmbedded()
   const [selectedTabIndex, setSelectedTabIndex] = useState(0)
   const [historyVisited, setHistoryVisited] = useState(false)
+  const [billingVisited, setBillingVisited] = useState(false)
 
   function handleTabSelect(index: number) {
     if (index === 1) setHistoryVisited(true)
+    if (index === 2) setBillingVisited(true)
     setSelectedTabIndex(index)
   }
 
-  // Only show History tab when embedded
   const tabs = isEmbedded
     ? [
-        {
-          id: 'audit',
-          content: 'Run Audit',
-        },
-        {
-          id: 'history',
-          content: 'History',
-        },
+        { id: 'audit',   content: 'Run Audit' },
+        { id: 'history', content: 'History' },
+        { id: 'billing', content: 'Billing' },
       ]
     : [
-        {
-          id: 'audit',
-          content: 'Run Audit',
-        },
+        { id: 'audit', content: 'Run Audit' },
       ]
 
   return (
@@ -47,12 +45,14 @@ export default function Dashboard() {
     >
       <BlockStack gap="500">
         <Tabs tabs={tabs} selected={selectedTabIndex} onSelect={handleTabSelect}>
-          {/* Both tabs stay mounted once visited — display:none preserves state across tab switches */}
           <div style={{ display: selectedTabIndex === 0 ? 'block' : 'none' }}>
             <AuditTab />
           </div>
           <div style={{ display: isEmbedded && selectedTabIndex === 1 ? 'block' : 'none' }}>
             {isEmbedded && historyVisited && <HistoryTab shop={shop} />}
+          </div>
+          <div style={{ display: isEmbedded && selectedTabIndex === 2 ? 'block' : 'none' }}>
+            {isEmbedded && billingVisited && <BillingTab />}
           </div>
         </Tabs>
       </BlockStack>

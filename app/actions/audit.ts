@@ -17,18 +17,23 @@ export async function runAccessibilityAuditForShop(idToken?: string): Promise<Au
   try {
     const shop = await requireVerifiedShop(idToken)
 
-    // Check plan — Free plan cannot run manual audits in embedded mode
+    // Check plan — honour trial period as Pro access
     const session = await getShopifySession(shop)
     const plan = session?.plan ?? 'free'
-    if (plan === 'free') {
+    const trialActive = session?.trial_ends_at
+      ? new Date(session.trial_ends_at) > new Date()
+      : false
+    const effectivePlan = trialActive ? 'pro' : plan
+
+    if (effectivePlan === 'free') {
       return {
         error: 'Upgrade required',
         details: 'Manual audits require a Basic or Pro subscription. Upgrade in the Billing tab.',
       }
     }
 
-    // Basic: 1 per day. Pro: unlimited.
-    if (plan === 'basic') {
+    // Basic: 1 per day. Pro (and trial): unlimited.
+    if (effectivePlan === 'basic') {
       const rateLimit = await checkRateLimit(`audit:${shop}`, BASIC_AUDIT_LIMIT)
       if (!rateLimit.allowed) {
         return {

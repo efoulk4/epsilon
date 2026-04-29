@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { saveShopifySession } from '@/app/utils/shopifySession'
+import { saveShopifySession, getShopifySession } from '@/app/utils/shopifySession'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 import { encrypt } from '@/app/utils/encryption'
 
@@ -126,6 +126,18 @@ export async function GET(request: NextRequest) {
     console.log('[OAuth Callback] Token received for shop:', shop, '| expiring:', !!refresh_token)
 
     const now = new Date()
+
+    // Only set a trial on first install — preserve plan/trial for reinstalls
+    const existingSession = await getShopifySession(shop)
+    const isFirstInstall = !existingSession
+    const trialEndsAt = isFirstInstall
+      ? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+      : undefined
+
+    if (isFirstInstall) {
+      console.log('[OAuth Callback] First install — starting 7-day trial for shop:', shop)
+    }
+
     const saved = await saveShopifySession({
       shop,
       accessToken: access_token,
@@ -136,6 +148,7 @@ export async function GET(request: NextRequest) {
         ? new Date(now.getTime() + refresh_token_expires_in * 1000)
         : undefined,
       isOnline: false,
+      trialEndsAt,
     })
 
     if (!saved) {
