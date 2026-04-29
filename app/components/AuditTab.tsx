@@ -157,6 +157,8 @@ export function AuditTab() {
       if (status) setPlanStatus(status)
       setScheduledAudits(unseen)
       setPastAudits(past.filter((a) => !unseen.find((u) => u.id === a.id)))
+      // Mark all unseen as seen immediately on load — badge clears next visit
+      unseen.forEach((a) => markAuditSeen(a.id, token).catch(() => {}))
     }
     init()
   }, [isEmbedded])
