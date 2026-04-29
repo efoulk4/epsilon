@@ -1,7 +1,5 @@
 'use server'
 
-export const maxDuration = 300
-
 import { chromium } from 'playwright-core'
 import chromiumPkg from '@sparticuz/chromium'
 import type { AuditResult, AuditError } from '@/types/audit'
