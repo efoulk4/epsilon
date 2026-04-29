@@ -266,48 +266,104 @@ export function ViolationList({ violations, shop, isEmbedded }: ViolationListPro
                                   )}
 
                                   {fixResult && (
-                                    <Banner tone={fixResult.success && fixResult.appliedFix ? 'success' : fixResult.success ? 'info' : 'critical'}>
-                                      <BlockStack gap="300">
-                                        <div style={{ whiteSpace: 'pre-wrap', fontSize: '12px' }}>{fixResult.message}</div>
+                                    <BlockStack gap="300">
+                                      {!fixResult.success && (
+                                        <Banner tone="critical">
+                                          <p>{fixResult.message}</p>
+                                        </Banner>
+                                      )}
 
-                                        {!fixResult.appliedFix && fixResult.cssCode && (
-                                          <BlockStack gap="300">
-                                            <Box background="bg-surface-warning" padding="300" borderRadius="200">
-                                              <Text as="p" variant="bodyMd" fontWeight="semibold">Manual CSS Fix Required</Text>
-                                            </Box>
-                                            <Box background="bg-surface" padding="300" borderRadius="200">
-                                              <code style={{ display: 'block', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                                {fixResult.cssCode}
-                                              </code>
-                                            </Box>
-                                            <InlineStack gap="200">
-                                              <Button size="medium" tone={copiedKeys.has(fixKey) ? 'success' : undefined} onClick={() => handleCopyCSS(fixKey, fixResult.cssCode!)}>
-                                                {copiedKeys.has(fixKey) ? '✓ Copied!' : 'Copy CSS'}
-                                              </Button>
-                                              <Button size="medium" variant="secondary" onClick={() => handleDownloadCSS(fixResult.cssCode!, violation.id)}>
-                                                Download CSS File
-                                              </Button>
-                                            </InlineStack>
-                                            {fixResult.detailedInstructions?.steps && (
-                                              <Box background="bg-surface-secondary" padding="300" borderRadius="200">
-                                                <BlockStack gap="200">
-                                                  <Text as="p" variant="bodyMd" fontWeight="semibold">Fix Instructions:</Text>
-                                                  <ol style={{ paddingLeft: '20px', margin: 0 }}>
-                                                    {fixResult.detailedInstructions.steps.map((step, i) => (
-                                                      <li key={i}><Text as="span" variant="bodySm">{step}</Text></li>
-                                                    ))}
-                                                  </ol>
-                                                </BlockStack>
-                                              </Box>
+                                      {fixResult.success && fixResult.appliedFix && (
+                                        <Banner tone="success">
+                                          <p>Fix applied to your store successfully.</p>
+                                        </Banner>
+                                      )}
+
+                                      {fixResult.success && !fixResult.appliedFix && fixResult.cssCode && (
+                                        <Box background="bg-surface-secondary" padding="400" borderRadius="200">
+                                          <BlockStack gap="400">
+                                            <BlockStack gap="100">
+                                              <Text as="p" variant="headingSm">How to apply this fix</Text>
+                                              <Text as="p" variant="bodySm" tone="subdued">
+                                                This fix requires a small change to your theme. Follow these steps — it takes about 2 minutes.
+                                              </Text>
+                                            </BlockStack>
+
+                                            {/* Step-by-step instructions */}
+                                            <BlockStack gap="200">
+                                              {(fixResult.detailedInstructions?.steps?.length
+                                                ? fixResult.detailedInstructions.steps
+                                                : [
+                                                    'In your Shopify admin, go to Online Store → Themes',
+                                                    'Click the ··· menu next to your active theme, then Edit code',
+                                                    fixResult.detailedInstructions?.themeFile
+                                                      ? `Open the file: ${fixResult.detailedInstructions.themeFile}`
+                                                      : 'Open Assets → base.css (or your theme\'s main CSS file)',
+                                                    'Paste the CSS code below at the bottom of the file',
+                                                    'Click Save',
+                                                  ]
+                                              ).map((step, i) => (
+                                                <InlineStack key={i} gap="300" blockAlign="start">
+                                                  <Box
+                                                    background="bg-fill-brand"
+                                                    padding="100"
+                                                    borderRadius="full"
+                                                    minWidth="24px"
+                                                  >
+                                                    <Text as="span" variant="bodySm" fontWeight="semibold" tone="text-inverse">
+                                                      {String(i + 1)}
+                                                    </Text>
+                                                  </Box>
+                                                  <Text as="p" variant="bodySm">{step}</Text>
+                                                </InlineStack>
+                                              ))}
+                                            </BlockStack>
+
+                                            {/* Find & Replace block if available */}
+                                            {fixResult.detailedInstructions?.searchFor && fixResult.detailedInstructions?.replaceWith && (
+                                              <BlockStack gap="200">
+                                                <Text as="p" variant="bodySm" fontWeight="semibold">Find this code:</Text>
+                                                <Box background="bg-surface" padding="300" borderRadius="200" borderWidth="025" borderColor="border">
+                                                  <code style={{ display: 'block', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#bf0711' }}>
+                                                    {fixResult.detailedInstructions.searchFor}
+                                                  </code>
+                                                </Box>
+                                                <Text as="p" variant="bodySm" fontWeight="semibold">Replace with:</Text>
+                                                <Box background="bg-surface" padding="300" borderRadius="200" borderWidth="025" borderColor="border">
+                                                  <code style={{ display: 'block', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#007c5b' }}>
+                                                    {fixResult.detailedInstructions.replaceWith}
+                                                  </code>
+                                                </Box>
+                                              </BlockStack>
                                             )}
-                                          </BlockStack>
-                                        )}
 
-                                        {fixResult.appliedFix && (
-                                          <Text as="p" variant="bodyMd" fontWeight="semibold" tone="success">Fix applied to your store!</Text>
-                                        )}
-                                      </BlockStack>
-                                    </Banner>
+                                            {/* CSS code block */}
+                                            <BlockStack gap="200">
+                                              <Text as="p" variant="bodySm" fontWeight="semibold">CSS to paste:</Text>
+                                              <Box background="bg-surface" padding="300" borderRadius="200" borderWidth="025" borderColor="border">
+                                                <code style={{ display: 'block', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                  {fixResult.cssCode}
+                                                </code>
+                                              </Box>
+                                              <InlineStack gap="200">
+                                                <Button size="slim" tone={copiedKeys.has(fixKey) ? 'success' : undefined} onClick={() => handleCopyCSS(fixKey, fixResult.cssCode!)}>
+                                                  {copiedKeys.has(fixKey) ? '✓ Copied!' : 'Copy CSS'}
+                                                </Button>
+                                                <Button size="slim" variant="secondary" onClick={() => handleDownloadCSS(fixResult.cssCode!, violation.id)}>
+                                                  Download CSS File
+                                                </Button>
+                                              </InlineStack>
+                                            </BlockStack>
+
+                                            <Box background="bg-surface" padding="300" borderRadius="200">
+                                              <Text as="p" variant="bodySm" tone="subdued">
+                                                Need help? Go to <Link url="https://help.shopify.com/en/manual/online-store/themes/theme-structure/extend/edit-theme-code" target="_blank" removeUnderline>Shopify's guide on editing theme code</Link>.
+                                              </Text>
+                                            </Box>
+                                          </BlockStack>
+                                        </Box>
+                                      )}
+                                    </BlockStack>
                                   )}
                                 </BlockStack>
                               </Box>
