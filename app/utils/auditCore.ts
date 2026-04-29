@@ -115,70 +115,97 @@ export async function scanSinglePage(page: any, pageUrl: string): Promise<any[]>
     })
   }
 
-  // 2. Focus trap detection: tab through up to 20 elements and detect if focus stops moving
-  const focusTrapResult = await page.evaluate(() => {
-    const focusable = Array.from(document.querySelectorAll(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )) as HTMLElement[]
-    if (focusable.length < 2) return null
+  // 2. Real Tab-keypress focus trap detection (cap at 40 presses)
+  // Focus the body first so Tab starts from the top of the page
+  await page.evaluate(() => { (document.body as HTMLElement).focus() })
 
-    const limit = Math.min(focusable.length, 20)
-    const seen = new Set<Element>()
-    let trapped: { html: string; target: string[] } | null = null
+  const TAB_LIMIT = 40
+  type FocusSnapshot = { html: string; target: string; outerKey: string }
+  const focusHistory: FocusSnapshot[] = []
+  let focusTrapResult: { html: string; target: string[] } | null = null
 
-    for (let i = 0; i < limit; i++) {
-      const el = focusable[i]
-      if (seen.has(el)) {
-        trapped = { html: el.outerHTML.slice(0, 300), target: [el.id ? `#${el.id}` : el.tagName.toLowerCase()] }
-        break
+  for (let i = 0; i < TAB_LIMIT; i++) {
+    await page.keyboard.press('Tab')
+
+    const snapshot = await page.evaluate((): FocusSnapshot | null => {
+      const el = document.activeElement as HTMLElement | null
+      if (!el || el === document.body || el === document.documentElement) return null
+      const id = el.id ? `#${el.id}` : ''
+      const cls = el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''
+      const target = id || cls || el.tagName.toLowerCase()
+      return {
+        html: el.outerHTML.slice(0, 300),
+        target,
+        outerKey: target + '|' + (el.textContent?.trim().slice(0, 40) ?? ''),
       }
-      seen.add(el)
+    })
+
+    if (!snapshot) break
+
+    // Detect if focus stopped moving (same element two presses in a row)
+    const prev = focusHistory[focusHistory.length - 1]
+    if (prev && prev.outerKey === snapshot.outerKey) {
+      focusTrapResult = { html: snapshot.html, target: [snapshot.target] }
+      break
     }
-    return trapped
-  })
+    focusHistory.push(snapshot)
+  }
 
   if (focusTrapResult) {
     violations.push({
       id: 'keyboard-focus-trap',
       impact: 'serious',
-      description: 'A keyboard focus trap was detected. Users relying on keyboard navigation may be unable to leave a component.',
+      description: 'A keyboard focus trap was detected. Tab keypress did not advance focus, trapping keyboard users.',
       help: 'Ensure focus is not trapped in any component outside of intentional modal dialogs',
       helpUrl: 'https://www.w3.org/WAI/WCAG21/Understanding/no-keyboard-trap.html',
       nodes: [{
         html: focusTrapResult.html,
         target: focusTrapResult.target,
-        failureSummary: 'Focus appears to loop back to this element unexpectedly. Check for tabindex misuse or JavaScript focus management that prevents users from tabbing away.',
+        failureSummary: 'Pressing Tab did not move focus away from this element. Check for tabindex misuse or JavaScript that calls .focus() in response to blur events.',
         _pageUrl: pageUrl,
       }],
     })
   }
 
-  // 3. Invisible focus indicators: check interactive elements for visible :focus styles
-  const missingFocusStyles = await page.evaluate(() => {
-    const focusable = Array.from(document.querySelectorAll(
-      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
-    )) as HTMLElement[]
-    const results: { html: string; target: string[] }[] = []
+  // 3. Visible focus indicator check via real Tab keypresses
+  // Re-focus body and tab through up to 30 elements, checking computed styles after each press
+  await page.evaluate(() => { (document.body as HTMLElement).focus() })
 
-    for (const el of focusable.slice(0, 30)) {
-      el.focus()
+  const missingFocusStyles: { html: string; target: string[] }[] = []
+  const seenFocusKeys = new Set<string>()
+
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press('Tab')
+
+    const result = await page.evaluate((): { html: string; target: string; key: string; hasIndicator: boolean } | null => {
+      const el = document.activeElement as HTMLElement | null
+      if (!el || el === document.body || el === document.documentElement) return null
+
       const style = window.getComputedStyle(el)
-      const outline = style.outline
-      const boxShadow = style.boxShadow
-      const hasOutline = outline && outline !== 'none' && !outline.startsWith('0px')
-      const hasShadow = boxShadow && boxShadow !== 'none'
-      if (!hasOutline && !hasShadow) {
-        const id = el.id ? `#${el.id}` : ''
-        const cls = el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''
-        results.push({
-          html: el.outerHTML.slice(0, 300),
-          target: [id || cls || el.tagName.toLowerCase()],
-        })
-      }
-      el.blur()
+      const outline = style.outline ?? ''
+      const boxShadow = style.boxShadow ?? ''
+      const outlineWidth = style.outlineWidth ?? ''
+
+      const hasOutline = outline !== 'none' && outlineWidth !== '0px' && outlineWidth !== ''
+      const hasShadow = boxShadow !== 'none' && boxShadow !== ''
+      const hasIndicator = hasOutline || hasShadow
+
+      const id = el.id ? `#${el.id}` : ''
+      const cls = el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''
+      const target = id || cls || el.tagName.toLowerCase()
+      const key = target + '|' + (el.textContent?.trim().slice(0, 40) ?? '')
+
+      return { html: el.outerHTML.slice(0, 300), target, key, hasIndicator }
+    })
+
+    if (!result) break
+    if (seenFocusKeys.has(result.key)) break // wrapped around
+    seenFocusKeys.add(result.key)
+
+    if (!result.hasIndicator) {
+      missingFocusStyles.push({ html: result.html, target: [result.target] })
     }
-    return results
-  })
+  }
 
   if (missingFocusStyles.length > 0) {
     violations.push({
@@ -190,7 +217,7 @@ export async function scanSinglePage(page: any, pageUrl: string): Promise<any[]>
       nodes: missingFocusStyles.map((el: { html: string; target: string[] }) => ({
         html: el.html,
         target: el.target,
-        failureSummary: 'This element has no visible outline or box-shadow when focused. Add a CSS :focus or :focus-visible rule, e.g.: `a:focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }`',
+        failureSummary: 'This element has no visible outline or box-shadow when focused via keyboard Tab. Add a CSS rule, e.g.: `:focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }`',
         _pageUrl: pageUrl,
       })),
     })
