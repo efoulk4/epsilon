@@ -9,9 +9,9 @@ import {
   Button,
   InlineStack,
   Banner,
-  Badge,
+  Box,
 } from '@shopify/polaris'
-import { fixProductContentWithAI } from '../actions/fixProductContent'
+import { fixProductContentWithAI, applyProductContent } from '../actions/fixProductContent'
 import { useIdToken } from '../hooks/useIdToken'
 
 type FixType = 'seo-title' | 'seo-description' | 'product-title' | 'product-description'
@@ -29,31 +29,55 @@ interface ProductContentFixModalProps {
   seoDescription: string
 }
 
-const LABELS: Record<FixType, { title: string; fieldLabel: string; maxChars: number; multiline: boolean }> = {
+const LABELS: Record<FixType, { title: string; fieldLabel: string; maxChars: number; multiline: boolean; hint: string }> = {
   'seo-title': {
     title: 'Fix SEO Title',
     fieldLabel: 'SEO Title',
     maxChars: 60,
     multiline: false,
+    hint: 'Shown as the blue link in Google search results. Be specific — include the product name and a key attribute.',
   },
   'seo-description': {
     title: 'Fix SEO Description',
     fieldLabel: 'SEO Description',
     maxChars: 160,
     multiline: true,
+    hint: 'Shown below the title in search results. Summarize what the product is and its key benefit in 1–2 sentences.',
   },
   'product-title': {
     title: 'Fix Product Title',
     fieldLabel: 'Product Title',
     maxChars: 60,
     multiline: false,
+    hint: 'Shown on the product page and in search. Use the format: Material + Item + Variant (e.g. "Merino Wool Running Socks").',
   },
   'product-description': {
     title: 'Fix Product Description',
     fieldLabel: 'Product Description',
     maxChars: 500,
     multiline: true,
+    hint: '2–4 sentences in plain language. Describe what it is, key features, and who it\'s for. Avoid HTML or jargon.',
   },
+}
+
+const isSeoField = (fixType: FixType) => fixType === 'seo-title' || fixType === 'seo-description'
+
+function GoogleSearchPreview({ seoTitle, seoDescription, handle }: { seoTitle: string; seoDescription: string; handle: string }) {
+  const displayUrl = `yourstore.com/products/${handle}`
+  return (
+    <Box background="bg-surface-secondary" padding="300" borderRadius="200">
+      <BlockStack gap="050">
+        <Text as="p" variant="bodySm" tone="subdued">Google Search Preview</Text>
+        <Text as="p" variant="bodySm" tone="subdued">{displayUrl}</Text>
+        <Text as="p" variant="bodyMd" tone="magic-subdued">
+          {seoTitle || <em>No SEO title set</em>}
+        </Text>
+        <Text as="p" variant="bodySm">
+          {seoDescription || <em>No SEO description set</em>}
+        </Text>
+      </BlockStack>
+    </Box>
+  )
 }
 
 export function ProductContentFixModal({
@@ -76,16 +100,16 @@ export function ProductContentFixModal({
   const [error, setError] = useState<string | null>(null)
 
   const label = LABELS[fixType]
+  const overLimit = content.length > label.maxChars
+
+  const ctx = { productId, productHandle, productTitle, description, seoTitle, seoDescription, fixType }
 
   const handleGenerate = async () => {
     setGenerating(true)
     setError(null)
     try {
       const idToken = await getIdToken()
-      const result = await fixProductContentWithAI(
-        { productId, productHandle, productTitle, description, seoTitle, seoDescription, fixType },
-        idToken
-      )
+      const result = await fixProductContentWithAI(ctx, idToken)
       if (result.success && result.generatedContent) {
         setContent(result.generatedContent)
       } else {
@@ -104,14 +128,9 @@ export function ProductContentFixModal({
     setError(null)
     try {
       const idToken = await getIdToken()
-      const result = await fixProductContentWithAI(
-        { productId, productHandle, productTitle, description, seoTitle, seoDescription, fixType, applyDirectly: true },
-        idToken
-      )
+      const result = await applyProductContent(ctx, content, idToken)
       if (result.success) {
         setApplied(true)
-        // Update local content to what was actually applied
-        if (result.generatedContent) setContent(result.generatedContent)
       } else {
         setError(result.error || 'Failed to apply fix')
       }
@@ -128,6 +147,9 @@ export function ProductContentFixModal({
     setApplied(false)
     onClose()
   }
+
+  const previewSeoTitle = fixType === 'seo-title' ? content : seoTitle
+  const previewSeoDescription = fixType === 'seo-description' ? content : seoDescription
 
   return (
     <Modal
@@ -150,15 +172,16 @@ export function ProductContentFixModal({
             </Banner>
           )}
 
-          <BlockStack gap="200">
+          <BlockStack gap="100">
             <Text as="p" variant="bodySm" tone="subdued">
               Product: <strong>{productTitle}</strong>
             </Text>
             {currentValue && (
               <Text as="p" variant="bodySm" tone="subdued">
-                Current value: <em>&quot;{currentValue}&quot;</em>
+                Current: <em>&quot;{currentValue}&quot;</em>
               </Text>
             )}
+            <Text as="p" variant="bodySm" tone="subdued">{label.hint}</Text>
           </BlockStack>
 
           <BlockStack gap="300">
@@ -173,13 +196,26 @@ export function ProductContentFixModal({
               label=""
               value={content}
               onChange={setContent}
-              placeholder={`Click 'Generate with AI' or enter ${label.fieldLabel.toLowerCase()} manually`}
+              placeholder={`Click 'Generate with AI' or type manually`}
               multiline={label.multiline ? 4 : undefined}
               autoComplete="off"
-              helpText={`${content.length} / ${label.maxChars} characters recommended`}
+              helpText={
+                <Text as="span" variant="bodySm" tone={overLimit ? 'critical' : 'subdued'}>
+                  {content.length} / {label.maxChars} characters{overLimit ? ' — too long' : ''}
+                </Text>
+              }
               disabled={applied}
+              error={overLimit ? `Shorten to ${label.maxChars} characters or fewer` : undefined}
             />
           </BlockStack>
+
+          {isSeoField(fixType) && content && (
+            <GoogleSearchPreview
+              seoTitle={previewSeoTitle}
+              seoDescription={previewSeoDescription}
+              handle={productHandle}
+            />
+          )}
 
           {content && !applied && (
             <InlineStack align="end">
@@ -188,19 +224,11 @@ export function ProductContentFixModal({
                 tone="success"
                 onClick={handleApply}
                 loading={applying}
-                disabled={applying || !content.trim()}
+                disabled={applying || !content.trim() || overLimit}
               >
                 {applying ? 'Applying...' : 'Apply to Store'}
               </Button>
             </InlineStack>
-          )}
-
-          {content.length > label.maxChars && (
-            <Banner tone="warning">
-              <Text as="p" variant="bodySm">
-                Content exceeds recommended {label.maxChars} characters. Consider shortening it.
-              </Text>
-            </Banner>
           )}
         </BlockStack>
       </Modal.Section>

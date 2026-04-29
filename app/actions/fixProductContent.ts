@@ -135,10 +135,6 @@ async function applyContentFix(
   return { success: true }
 }
 
-/**
- * Generate AI content for a product field and optionally apply it directly.
- * Called from the UI when merchant clicks "Fix with AI" on a product content violation.
- */
 export async function fixProductContentWithAI(
   ctx: {
     productId: string
@@ -148,7 +144,6 @@ export async function fixProductContentWithAI(
     seoTitle: string
     seoDescription: string
     fixType: 'seo-title' | 'seo-description' | 'product-title' | 'product-description'
-    applyDirectly?: boolean
   },
   idToken?: string
 ): Promise<FixResult> {
@@ -167,21 +162,39 @@ export async function fixProductContentWithAI(
       return { success: false, error: 'Gemini API key not configured' }
     }
 
-    console.log(`[fixProductContentWithAI] Generating ${ctx.fixType} for product: ${ctx.productHandle}`)
-
     const generatedContent = await generateContent(ctx)
-
-    if (ctx.applyDirectly) {
-      const applyResult = await applyContentFix(shop, ctx, generatedContent)
-      if (!applyResult.success) {
-        return { success: false, error: applyResult.error }
-      }
-      return { success: true, generatedContent, applied: true }
-    }
-
     return { success: true, generatedContent, applied: false }
   } catch (error) {
     console.error('[fixProductContentWithAI] Error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+export async function applyProductContent(
+  ctx: {
+    productId: string
+    productHandle: string
+    productTitle: string
+    description: string
+    seoTitle: string
+    seoDescription: string
+    fixType: 'seo-title' | 'seo-description' | 'product-title' | 'product-description'
+  },
+  content: string,
+  idToken?: string
+): Promise<FixResult> {
+  try {
+    const shop = await requireVerifiedShop(idToken)
+    const applyResult = await applyContentFix(shop, ctx, content)
+    if (!applyResult.success) {
+      return { success: false, error: applyResult.error }
+    }
+    return { success: true, generatedContent: content, applied: true }
+  } catch (error) {
+    console.error('[applyProductContent] Error:', error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
