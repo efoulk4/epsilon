@@ -83,6 +83,119 @@ export async function scanSinglePage(page: any, pageUrl: string): Promise<any[]>
     })
   }
 
+  // --- Keyboard navigation checks ---
+
+  // 1. Skip link: first focusable element should be a skip-to-main link
+  const skipLinkResult = await page.evaluate(() => {
+    const focusable = document.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+    const first = focusable[0] as HTMLElement | undefined
+    if (!first) return null
+    const isSkipLink =
+      first.tagName === 'A' &&
+      (first.textContent?.toLowerCase().includes('skip') ||
+        first.getAttribute('href')?.startsWith('#'))
+    return isSkipLink ? null : { html: first.outerHTML.slice(0, 300), target: [first.id ? `#${first.id}` : first.tagName.toLowerCase()] }
+  })
+
+  if (skipLinkResult) {
+    violations.push({
+      id: 'missing-skip-link',
+      impact: 'moderate',
+      description: 'No skip-to-main-content link found. Keyboard users must tab through the entire navigation on every page.',
+      help: 'Add a skip link as the first focusable element on the page',
+      helpUrl: 'https://webaim.org/techniques/skipnav/',
+      nodes: [{
+        html: skipLinkResult.html,
+        target: skipLinkResult.target,
+        failureSummary: 'Add a "Skip to main content" link as the very first focusable element, linking to your main content anchor (e.g., <a href="#main-content" class="skip-link">Skip to main content</a>).',
+        _pageUrl: pageUrl,
+      }],
+    })
+  }
+
+  // 2. Focus trap detection: tab through up to 20 elements and detect if focus stops moving
+  const focusTrapResult = await page.evaluate(() => {
+    const focusable = Array.from(document.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )) as HTMLElement[]
+    if (focusable.length < 2) return null
+
+    const limit = Math.min(focusable.length, 20)
+    const seen = new Set<Element>()
+    let trapped: { html: string; target: string[] } | null = null
+
+    for (let i = 0; i < limit; i++) {
+      const el = focusable[i]
+      if (seen.has(el)) {
+        trapped = { html: el.outerHTML.slice(0, 300), target: [el.id ? `#${el.id}` : el.tagName.toLowerCase()] }
+        break
+      }
+      seen.add(el)
+    }
+    return trapped
+  })
+
+  if (focusTrapResult) {
+    violations.push({
+      id: 'keyboard-focus-trap',
+      impact: 'serious',
+      description: 'A keyboard focus trap was detected. Users relying on keyboard navigation may be unable to leave a component.',
+      help: 'Ensure focus is not trapped in any component outside of intentional modal dialogs',
+      helpUrl: 'https://www.w3.org/WAI/WCAG21/Understanding/no-keyboard-trap.html',
+      nodes: [{
+        html: focusTrapResult.html,
+        target: focusTrapResult.target,
+        failureSummary: 'Focus appears to loop back to this element unexpectedly. Check for tabindex misuse or JavaScript focus management that prevents users from tabbing away.',
+        _pageUrl: pageUrl,
+      }],
+    })
+  }
+
+  // 3. Invisible focus indicators: check interactive elements for visible :focus styles
+  const missingFocusStyles = await page.evaluate(() => {
+    const focusable = Array.from(document.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+    )) as HTMLElement[]
+    const results: { html: string; target: string[] }[] = []
+
+    for (const el of focusable.slice(0, 30)) {
+      el.focus()
+      const style = window.getComputedStyle(el)
+      const outline = style.outline
+      const boxShadow = style.boxShadow
+      const hasOutline = outline && outline !== 'none' && !outline.startsWith('0px')
+      const hasShadow = boxShadow && boxShadow !== 'none'
+      if (!hasOutline && !hasShadow) {
+        const id = el.id ? `#${el.id}` : ''
+        const cls = el.className ? `.${String(el.className).trim().split(/\s+/).slice(0, 2).join('.')}` : ''
+        results.push({
+          html: el.outerHTML.slice(0, 300),
+          target: [id || cls || el.tagName.toLowerCase()],
+        })
+      }
+      el.blur()
+    }
+    return results
+  })
+
+  if (missingFocusStyles.length > 0) {
+    violations.push({
+      id: 'missing-focus-indicator',
+      impact: 'serious',
+      description: 'Interactive elements have no visible focus indicator when navigated to by keyboard.',
+      help: 'All interactive elements must have a visible focus style (outline or box-shadow)',
+      helpUrl: 'https://www.w3.org/WAI/WCAG21/Understanding/focus-visible.html',
+      nodes: missingFocusStyles.map((el: { html: string; target: string[] }) => ({
+        html: el.html,
+        target: el.target,
+        failureSummary: 'This element has no visible outline or box-shadow when focused. Add a CSS :focus or :focus-visible rule, e.g.: `a:focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }`',
+        _pageUrl: pageUrl,
+      })),
+    })
+  }
+
   return violations
 }
 
