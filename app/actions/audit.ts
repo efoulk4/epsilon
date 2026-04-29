@@ -10,6 +10,7 @@ import { validateShopifyStoreURL } from '@/app/utils/ssrf-protection'
 import { checkRateLimit } from '@/app/utils/rateLimit'
 import { getShopifySession } from '@/app/utils/shopifySession'
 import { discoverAndScan } from '@/app/utils/auditCore'
+import type { ImpactLevel } from '@/types/audit'
 
 const BASIC_AUDIT_LIMIT = { windowMs: 24 * 60 * 60 * 1000, maxRequests: 1 }
 
@@ -54,8 +55,21 @@ export async function runAccessibilityAuditForShop(idToken?: string): Promise<Au
     const storeUrl = `https://${shop}`
     console.log(`[runAccessibilityAuditForShop] Auditing ${storeUrl} (plan: ${plan})`)
 
-    const result = await runAccessibilityAudit(storeUrl, shop)
-    return result
+    // Run Playwright structural audit and API product image audit in parallel
+    const [playwrightResult, productImageResult] = await Promise.all([
+      runAccessibilityAudit(storeUrl),
+      runProductImageAuditInternal(shop, idToken),
+    ])
+
+    if ('error' in playwrightResult) return playwrightResult
+
+    // Merge product image violations into the structural result
+    const merged = mergeProductImageViolations(playwrightResult, productImageResult)
+
+    // Save the fully merged result so history matches what the UI shows
+    await saveAuditToDatabase(merged, shop)
+
+    return merged
   } catch (error) {
     console.error('Error running audit for shop:', error)
     return {
@@ -94,10 +108,7 @@ export async function runAccessibilityAuditForURL(url: string): Promise<AuditRes
   return runAccessibilityAudit(normalized)
 }
 
-async function runAccessibilityAudit(
-  url: string,
-  shop?: string
-): Promise<AuditResult | AuditError> {
+async function runAccessibilityAudit(url: string): Promise<AuditResult | AuditError> {
   let browser = null
 
   try {
@@ -120,13 +131,7 @@ async function runAccessibilityAudit(
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     })
 
-    const result = await discoverAndScan(context, url)
-
-    if (shop) {
-      await saveAuditToDatabase(result, shop)
-    }
-
-    return result
+    return await discoverAndScan(context, url)
   } catch (error) {
     console.error('Audit error:', error)
     return error instanceof Error
@@ -135,6 +140,36 @@ async function runAccessibilityAudit(
   } finally {
     if (browser) await browser.close()
   }
+}
+
+async function runProductImageAuditInternal(
+  shop: string,
+  idToken?: string
+): Promise<import('@/app/actions/productImageAudit').ProductAuditResult | null> {
+  try {
+    const { runProductImageAudit } = await import('@/app/actions/productImageAudit')
+    const result = await runProductImageAudit(idToken)
+    return 'error' in result ? null : result
+  } catch {
+    return null
+  }
+}
+
+function mergeProductImageViolations(
+  base: AuditResult,
+  productResult: import('@/app/actions/productImageAudit').ProductAuditResult | null
+): AuditResult {
+  if (!productResult || productResult.violations.length === 0) return base
+
+  const merged = { ...base }
+  merged.violations = [...base.violations, ...productResult.violations]
+  merged.violationsByImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }
+  merged.violations.forEach((v) => {
+    const impact = v.impact as ImpactLevel
+    if (merged.violationsByImpact[impact] !== undefined) merged.violationsByImpact[impact]++
+  })
+  merged.totalViolations = merged.violations.length
+  return merged
 }
 
 async function saveAuditToDatabase(

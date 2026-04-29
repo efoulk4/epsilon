@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react'
 import { useIdToken } from '../hooks/useIdToken'
 import { useIsEmbedded } from '../hooks/useIsEmbedded'
 import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../actions/audit'
-import { runProductImageAudit } from '../actions/productImageAudit'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
@@ -106,36 +105,14 @@ export function AuditTab() {
 
     try {
       const idToken = await getIdToken()
-
-      // Run Playwright structural audit and API product image audit in parallel
-      const [auditResult, productImageResult] = await Promise.all([
-        runAccessibilityAuditForShop(idToken),
-        runProductImageAudit(idToken),
-      ])
+      const auditResult = await runAccessibilityAuditForShop(idToken)
 
       if ('error' in auditResult) {
         setError(auditResult.details || auditResult.error)
         return
       }
 
-      // Merge product image violations into the structural audit results
-      if (!('error' in productImageResult) && productImageResult.violations.length > 0) {
-        const merged = { ...auditResult }
-        merged.violations = [...auditResult.violations, ...productImageResult.violations]
-
-        // Recount by impact
-        merged.violationsByImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 }
-        merged.violations.forEach((v) => {
-          if (merged.violationsByImpact[v.impact] !== undefined) {
-            merged.violationsByImpact[v.impact]++
-          }
-        })
-        merged.totalViolations = merged.violations.length
-
-        setResult(merged)
-      } else {
-        setResult(auditResult)
-      }
+      setResult(auditResult)
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
       console.error(err)
