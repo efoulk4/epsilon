@@ -35,8 +35,6 @@ async function registerWebhooks(shop: string, accessToken: string): Promise<void
     { topic: 'customers/data_request', address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-data-request` },
     { topic: 'customers/redact',       address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-redact` },
     { topic: 'shop/redact',            address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/shop-redact` },
-    { topic: 'products/create',        address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/products-create` },
-    { topic: 'products/update',        address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/products-update` },
   ]
 
   for (const webhook of webhooks) {

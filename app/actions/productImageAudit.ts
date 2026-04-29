@@ -14,14 +14,14 @@ const GENERIC_ALT_PATTERNS = [
   /^screenshot$/i, /^image \d+ of \d+$/i,
 ]
 
+function isGenericAlt(alt: string): boolean {
+  return GENERIC_ALT_PATTERNS.some((p) => p.test(alt.trim()))
+}
+
 const GENERIC_TITLE_PATTERNS = [
   /^new product$/i, /^untitled$/i, /^product \d+$/i, /^draft$/i,
   /^sample$/i, /^test$/i, /^example$/i, /^my product$/i,
 ]
-
-function isGenericAlt(alt: string): boolean {
-  return GENERIC_ALT_PATTERNS.some((p) => p.test(alt.trim()))
-}
 
 function isGenericTitle(title: string): boolean {
   return GENERIC_TITLE_PATTERNS.some((p) => p.test(title.trim()))

@@ -4,6 +4,8 @@ import { encrypt, decrypt, isEncrypted } from './encryption'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
+export type ShopPlan = 'free' | 'basic' | 'pro'
+
 export interface ShopifySession {
   shop: string
   access_token: string
@@ -12,6 +14,7 @@ export interface ShopifySession {
   refresh_token: string | null
   refresh_token_expires_at: string | null
   is_online: boolean
+  plan: ShopPlan
 }
 
 function makeSupabaseClient() {
@@ -65,6 +68,7 @@ export async function saveShopifySession(session: {
   refreshToken?: string
   refreshTokenExpiresAt?: Date
   isOnline: boolean
+  plan?: ShopPlan
 }): Promise<boolean> {
   const supabase = makeSupabaseClient()
   if (!supabase) {
@@ -75,7 +79,7 @@ export async function saveShopifySession(session: {
   const encryptedToken = encrypt(session.accessToken)
   const encryptedRefresh = session.refreshToken ? encrypt(session.refreshToken) : null
 
-  const { error } = await supabase.from('shopify_sessions').upsert({
+  const upsertData: Record<string, unknown> = {
     shop: session.shop,
     access_token: encryptedToken,
     scope: session.scope || null,
@@ -86,7 +90,12 @@ export async function saveShopifySession(session: {
       : null,
     is_online: session.isOnline,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'shop' })
+  }
+  if (session.plan !== undefined) {
+    upsertData.plan = session.plan
+  }
+
+  const { error } = await supabase.from('shopify_sessions').upsert(upsertData, { onConflict: 'shop' })
 
   if (error) {
     console.error('[saveShopifySession] Error:', error.code, error.message, error.details)
@@ -158,6 +167,7 @@ export async function refreshShopifyToken(shop: string): Promise<string | null> 
       refreshToken: refresh_token,
       refreshTokenExpiresAt: refreshExpiresAt,
       isOnline: false,
+      plan: session.plan,
     })
 
     if (!saved) {
