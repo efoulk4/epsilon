@@ -251,6 +251,7 @@ export interface ScheduledAuditNotification {
   violations: AuditResult['violations']
   url: string
   healthScore: number
+  isNew: boolean
 }
 
 export async function getUnseenScheduledAudits(
@@ -284,10 +285,52 @@ export async function getUnseenScheduledAudits(
         violations: row.violations,
         violationsByImpact: row.violations_by_impact,
         healthScore: row.health_score,
+        isNew: true,
       })) || []
     )
   } catch (error) {
     console.error('[getUnseenScheduledAudits] Error:', error)
+    return []
+  }
+}
+
+export async function getScheduledAuditHistory(
+  idToken?: string
+): Promise<ScheduledAuditNotification[]> {
+  if (!isSupabaseConfigured) return []
+
+  try {
+    const shop = await requireVerifiedShop(idToken)
+    const supabaseAdmin = getSupabaseAdmin()
+
+    const { data, error } = await supabaseAdmin
+      .from('audits')
+      .select('*')
+      .eq('shop', shop)
+      .eq('source', 'scheduled')
+      .eq('seen', true)
+      .order('created_at', { ascending: false })
+      .limit(10)
+
+    if (error) {
+      console.error('[getScheduledAuditHistory] Database error:', error.message)
+      return []
+    }
+
+    return (
+      data?.map((row) => ({
+        id: row.id,
+        url: row.url,
+        timestamp: row.timestamp,
+        totalViolations: row.total_violations,
+        violations: row.violations,
+        violationsByImpact: row.violations_by_impact,
+        healthScore: row.health_score,
+        isNew: false,
+      })) || []
+    )
+  } catch (error) {
+    console.error('[getScheduledAuditHistory] Error:', error)
     return []
   }
 }
