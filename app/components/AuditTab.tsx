@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useIdToken } from '../hooks/useIdToken'
 import { useIsEmbedded } from '../hooks/useIsEmbedded'
 import { runAccessibilityAuditForShop, runAccessibilityAuditForURL } from '../actions/audit'
+import { getPlanStatus, type PlanStatus } from '../actions/billing'
 import type { AuditResult, ImpactLevel, AuditViolation } from '@/types/audit'
 import { calculateHealthScore, getHealthStatus } from '../utils/healthScore'
 import { HealthScoreGauge } from './HealthScoreGauge'
@@ -42,6 +43,15 @@ export function AuditTab() {
   const [result, setResult] = useState<AuditResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copyError, setCopyError] = useState<string | null>(null)
+  const [planStatus, setPlanStatus] = useState<PlanStatus | null>(null)
+  const [auditUsedToday, setAuditUsedToday] = useState(false)
+
+  useEffect(() => {
+    if (!isEmbedded) return
+    getIdToken().then((token) =>
+      getPlanStatus(token).then(setPlanStatus).catch(() => {})
+    )
+  }, [isEmbedded])
   const [expandedImpact, setExpandedImpact] = useState<{
     [key in ImpactLevel]?: boolean
   }>({
@@ -113,6 +123,8 @@ export function AuditTab() {
       }
 
       setResult(auditResult)
+      // Mark quota as used for Basic plan display
+      if (planStatus?.effectivePlan === 'basic') setAuditUsedToday(true)
     } catch (err) {
       setError('An unexpected error occurred. Please try again.')
       console.error(err)
@@ -275,8 +287,56 @@ export function AuditTab() {
   const healthScore = result ? calculateHealthScore(result) : 0
   const healthStatus = result ? getHealthStatus(healthScore) : null
 
+  const effectivePlan = planStatus?.effectivePlan
+  const trialExpired = isEmbedded && planStatus && !planStatus.trialActive && planStatus.plan === 'free'
+  const trialEndingSoon = planStatus?.trialActive && (planStatus.trialDaysLeft ?? 99) <= 2
+  const isFirstVisit = isEmbedded && !result && !loading && !error
+
   return (
     <BlockStack gap="500">
+      {/* Trial expired — show upgrade prompt before anything else */}
+      {trialExpired && (
+        <Banner title="Your free trial has ended" tone="warning">
+          <BlockStack gap="200">
+            <Text as="p" variant="bodyMd">
+              Upgrade to continue running audits and keep building your compliance history.
+              A documented record of ongoing accessibility work is one of the strongest defenses in ADA litigation.
+            </Text>
+            <Text as="p" variant="bodySm" tone="subdued">
+              Go to the <strong>Billing</strong> tab to choose a plan.
+            </Text>
+          </BlockStack>
+        </Banner>
+      )}
+
+      {/* Trial ending soon */}
+      {trialEndingSoon && (
+        <Banner
+          title={`Trial ends in ${planStatus!.trialDaysLeft} day${planStatus!.trialDaysLeft === 1 ? '' : 's'}`}
+          tone="warning"
+        >
+          <Text as="p" variant="bodyMd">
+            Subscribe before your trial ends to keep your audit history and scheduled scans running.
+            Visit the <strong>Billing</strong> tab to upgrade.
+          </Text>
+        </Banner>
+      )}
+
+      {/* Onboarding card — first visit, embedded, no results yet */}
+      {isFirstVisit && effectivePlan && effectivePlan !== 'free' && (
+        <Banner tone="info" title="Welcome to Accessibility Auditor">
+          <BlockStack gap="200">
+            <Text as="p" variant="bodyMd">
+              This app scans your storefront for WCAG 2.1 accessibility violations and generates AI-powered fixes.
+              Every audit is saved to your compliance history — a timestamped record that demonstrates genuine effort to improve accessibility, which can be critical in ADA disputes.
+            </Text>
+            <Text as="p" variant="bodyMd">
+              Click <strong>Audit My Store</strong> below to run your first scan. It takes 30–60 seconds.
+            </Text>
+          </BlockStack>
+        </Banner>
+      )}
+
       {/* Shopify Store Audit Card - Only shown in embedded mode */}
       {isEmbedded && shop && (
         <Card>
@@ -292,12 +352,24 @@ export function AuditTab() {
                 <Text as="p" variant="bodySm" tone="subdued">
                   Store: {shop}
                 </Text>
+                {/* Quota indicator for Basic plan */}
+                {effectivePlan === 'basic' && (
+                  <Text as="p" variant="bodySm" tone={auditUsedToday ? 'critical' : 'subdued'}>
+                    {auditUsedToday ? 'Daily audit used — resets at midnight' : '1 manual audit remaining today'}
+                  </Text>
+                )}
+                {effectivePlan === 'trial' && planStatus?.trialDaysLeft !== null && (
+                  <Text as="p" variant="bodySm" tone="subdued">
+                    Free trial — {planStatus!.trialDaysLeft} day{planStatus!.trialDaysLeft === 1 ? '' : 's'} remaining
+                  </Text>
+                )}
               </Box>
               <Button
                 variant="primary"
                 onClick={handleAuditMyStore}
                 loading={loading}
                 icon={StoreIcon}
+                disabled={!!trialExpired}
               >
                 Audit My Store
               </Button>
