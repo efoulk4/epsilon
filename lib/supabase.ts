@@ -33,6 +33,8 @@ export function getSupabaseAdmin() {
     throw new Error('Supabase admin client credentials not configured')
   }
 
+  console.log('[getSupabaseAdmin] key prefix:', serviceKey.slice(0, 20), 'length:', serviceKey.length)
+
   return createClient(url, serviceKey, {
     auth: {
       autoRefreshToken: false,
