@@ -18,6 +18,7 @@ CREATE POLICY "Service role only" ON shopify_sessions AS RESTRICTIVE
 
 -- proposed_fixes
 ALTER TABLE proposed_fixes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role only" ON proposed_fixes;
 CREATE POLICY "Service role only" ON proposed_fixes AS RESTRICTIVE
   USING (auth.role() = 'service_role');
 
