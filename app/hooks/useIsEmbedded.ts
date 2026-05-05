@@ -16,14 +16,16 @@ export function useIsEmbedded(): { isEmbedded: boolean; shop: string | null } {
     const fromUrl = new URLSearchParams(window.location.search).get('shop')
     const resolvedShop = fromUrl || stored
 
+    // Set shop immediately from URL/session — don't wait for App Bridge
+    if (resolvedShop) {
+      setShop(resolvedShop)
+      if (!stored) sessionStorage.setItem('shopify_shop', resolvedShop)
+    }
+
     function check() {
       const shopifyGlobal = (window as any).shopify
       if (shopifyGlobal) {
         setIsEmbedded(true)
-        if (resolvedShop) {
-          setShop(resolvedShop)
-          if (!stored) sessionStorage.setItem('shopify_shop', resolvedShop)
-        }
         return true
       }
       return false
