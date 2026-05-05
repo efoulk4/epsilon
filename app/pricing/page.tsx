@@ -46,7 +46,9 @@ export default function Pricing() {
       </Section>
 
       <Section title="Why ongoing audits matter">
-        <p>Under ADA and WCAG guidelines, courts and regulators look at whether you have made a genuine, documented effort to improve accessibility over time. A timestamped history of regular audits and remediation attempts has been cited as evidence of good faith in multiple cases, leading to dismissed claims or reduced settlements even when violations were still present. Every audit you run extends that record.</p>
+        <p>No website is ever 100% compliant all the time. Dynamic content, third-party scripts, theme updates, and new WCAG guidance mean that some degree of non-compliance is technically unavoidable on any live store. What matters is whether the issues you have are isolated exceptions or the norm.</p>
+        <p>A timestamped audit history lets you demonstrate exactly that. When a complaint arises, you can show that the flagged issue appeared between audits, was identified, and was resolved — fitting the pattern of an exception rather than neglect. That documented pattern of routine detection and remediation is a strong basis for dismissal on mootness grounds, since the issue is already resolved by the time the case is heard.</p>
+        <p>Every audit you run builds that evidentiary foundation.</p>
       </Section>
 
       <Section title="Questions?">
