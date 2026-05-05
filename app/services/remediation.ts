@@ -64,22 +64,11 @@ async function saveProposedFix(
   fixData: any
 ): Promise<{ success: boolean; proposalId?: string; error?: string }> {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!url || !serviceKey) {
-      return { success: false, error: 'Supabase credentials not configured' }
-    }
+    const supabase = getSupabaseAdmin()
 
-    // Use direct REST API — the supabase-js client doesn't support sb_secret_ keys
-    const res = await fetch(`${url}/rest/v1/proposed_fixes`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': serviceKey,
-        'Authorization': `Bearer ${serviceKey}`,
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify({
+    const { data, error } = await supabase
+      .from('proposed_fixes')
+      .insert({
         shop,
         violation_id: violation.id,
         violation_description: violation.description,
@@ -91,16 +80,14 @@ async function saveProposedFix(
         fix_type: fixData.fixType,
         confidence_score: fixData.confidence || null,
         status: 'pending',
-      }),
-    })
+      })
+      .select()
 
-    if (!res.ok) {
-      const body = await res.text()
-      console.error('[saveProposedFix] REST error:', res.status, body)
-      return { success: false, error: `HTTP ${res.status}: ${body}` }
+    if (error) {
+      console.error('[saveProposedFix] Database error:', error)
+      return { success: false, error: error.message }
     }
 
-    const data = await res.json()
     return { success: true, proposalId: data[0]?.id }
   } catch (error) {
     console.error('[saveProposedFix] Unexpected error:', error)
