@@ -2,6 +2,7 @@
 
 import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import type { AuditViolation } from '@/types/audit'
 import { requireVerifiedShop } from '@/app/utils/auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
@@ -10,6 +11,42 @@ import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 const genAI = process.env.GOOGLE_API_KEY
   ? new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
   : null
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null
+
+function isTransientGeminiError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('503') || msg.includes('unavailable') || msg.includes('high demand') || msg.includes('overloaded') || msg.includes('rate limit') || msg.includes('429')
+}
+
+async function generateWithFallback(prompt: string): Promise<string> {
+  if (genAI) {
+    try {
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+      const result = await model.generateContent(prompt)
+      return result.response.text()
+    } catch (err) {
+      if (!isTransientGeminiError(err)) throw err
+      console.warn('[generateWithFallback] Gemini transient error, falling back to Claude:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  if (anthropic) {
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const block = msg.content[0]
+    if (block.type === 'text') return block.text
+    throw new Error('Unexpected Claude response type')
+  }
+
+  throw new Error('No AI provider available — configure GOOGLE_API_KEY or ANTHROPIC_API_KEY')
+}
 
 interface ViolationNode {
   html: string
@@ -119,16 +156,14 @@ export async function fixViolationWithAI(
       }
     }
 
-    if (!genAI) {
+    if (!genAI && !anthropic) {
       return {
         success: false,
-        error: 'Gemini API key not configured',
+        error: 'No AI provider configured — add GOOGLE_API_KEY or ANTHROPIC_API_KEY',
       }
     }
 
     console.log('[fixViolationWithAI] Analyzing violation:', violation.id)
-
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
     // Sanitize user-controlled fields to prevent prompt injection.
     // These values may come from attacker-controlled page content scanned by Axe.
@@ -203,8 +238,7 @@ Format your response as JSON:
   }
 }`
 
-    const result = await model.generateContent(prompt)
-    const response = result.response.text()
+    const response = await generateWithFallback(prompt)
 
     // SECURITY: Do not log AI response — may contain reflected attacker-controlled content
 

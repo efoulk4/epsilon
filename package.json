@@ -12,6 +12,7 @@
     "test:security": "jest __tests__/security"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.94.0",
     "@google/generative-ai": "^0.24.1",
     "@shopify/app-bridge-react": "^4.2.10",
     "@shopify/polaris": "^12.0.0",
