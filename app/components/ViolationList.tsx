@@ -279,6 +279,45 @@ export function ViolationList({ violations, shop, isEmbedded }: ViolationListPro
                                         </Banner>
                                       )}
 
+                                      {fixResult.success && !fixResult.appliedFix && !fixResult.cssCode && (
+                                        <Box background="bg-surface-secondary" padding="400" borderRadius="200">
+                                          <BlockStack gap="300">
+                                            <Text as="p" variant="headingSm">Fix Proposal Generated</Text>
+                                            <Text as="p" variant="bodySm" tone="subdued" breakWord>
+                                              {fixResult.message}
+                                            </Text>
+                                            {fixResult.detailedInstructions?.steps?.length ? (
+                                              <BlockStack gap="200">
+                                                {fixResult.detailedInstructions.steps.map((step, i) => (
+                                                  <InlineStack key={i} gap="300" blockAlign="start">
+                                                    <Box background="bg-fill-brand" padding="100" borderRadius="full" minWidth="24px">
+                                                      <Text as="span" variant="bodySm" fontWeight="semibold" tone="text-inverse">{String(i + 1)}</Text>
+                                                    </Box>
+                                                    <Text as="p" variant="bodySm">{step}</Text>
+                                                  </InlineStack>
+                                                ))}
+                                              </BlockStack>
+                                            ) : null}
+                                            {fixResult.detailedInstructions?.searchFor && fixResult.detailedInstructions?.replaceWith && (
+                                              <BlockStack gap="200">
+                                                <Text as="p" variant="bodySm" fontWeight="semibold">Find this code:</Text>
+                                                <Box background="bg-surface" padding="300" borderRadius="200" borderWidth="025" borderColor="border">
+                                                  <code style={{ display: 'block', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#bf0711' }}>
+                                                    {fixResult.detailedInstructions.searchFor}
+                                                  </code>
+                                                </Box>
+                                                <Text as="p" variant="bodySm" fontWeight="semibold">Replace with:</Text>
+                                                <Box background="bg-surface" padding="300" borderRadius="200" borderWidth="025" borderColor="border">
+                                                  <code style={{ display: 'block', fontSize: '11px', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#007c5b' }}>
+                                                    {fixResult.detailedInstructions.replaceWith}
+                                                  </code>
+                                                </Box>
+                                              </BlockStack>
+                                            )}
+                                          </BlockStack>
+                                        </Box>
+                                      )}
+
                                       {fixResult.success && !fixResult.appliedFix && fixResult.cssCode && (
                                         <Box background="bg-surface-secondary" padding="400" borderRadius="200">
                                           <BlockStack gap="400">
