@@ -282,19 +282,23 @@ export function ViolationList({ violations, shop, isEmbedded }: ViolationListPro
                                       {fixResult.success && !fixResult.appliedFix && !fixResult.cssCode && (
                                         <Box background="bg-surface-secondary" padding="400" borderRadius="200">
                                           <BlockStack gap="300">
-                                            <Text as="p" variant="headingSm">Fix Proposal Generated</Text>
+                                            <Text as="p" variant="headingSm">How to fix this</Text>
                                             <Text as="p" variant="bodySm" tone="subdued" breakWord>
-                                              {fixResult.message}
+                                              {fixResult.message
+                                                .replace(/^Fix Proposal Generated\s*/i, '')
+                                                .replace(/\s*This fix has been saved for review[\s\S]*$/i, '')
+                                                .replace(/\s*Proposal ID:[\s\S]*$/i, '')
+                                                .trim()}
                                             </Text>
                                             {fixResult.detailedInstructions?.steps?.length ? (
                                               <BlockStack gap="200">
                                                 {fixResult.detailedInstructions.steps.map((step, i) => (
-                                                  <InlineStack key={i} gap="300" blockAlign="start">
-                                                    <Box background="bg-fill-brand" padding="100" borderRadius="full" minWidth="24px">
-                                                      <Text as="span" variant="bodySm" fontWeight="semibold" tone="text-inverse">{String(i + 1)}</Text>
-                                                    </Box>
-                                                    <Text as="p" variant="bodySm">{step}</Text>
-                                                  </InlineStack>
+                                                  <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                                    <div style={{ flexShrink: 0, width: 24, height: 24, borderRadius: '50%', background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                      <span style={{ color: '#fff', fontSize: '12px', fontWeight: 600, lineHeight: 1 }}>{i + 1}</span>
+                                                    </div>
+                                                    <Text as="p" variant="bodySm">{step.replace(/^Step\s+\d+:\s*/i, '')}</Text>
+                                                  </div>
                                                 ))}
                                               </BlockStack>
                                             ) : null}
@@ -342,19 +346,12 @@ export function ViolationList({ violations, shop, isEmbedded }: ViolationListPro
                                                     'Click Save',
                                                   ]
                                               ).map((step, i) => (
-                                                <InlineStack key={i} gap="300" blockAlign="start">
-                                                  <Box
-                                                    background="bg-fill-brand"
-                                                    padding="100"
-                                                    borderRadius="full"
-                                                    minWidth="24px"
-                                                  >
-                                                    <Text as="span" variant="bodySm" fontWeight="semibold" tone="text-inverse">
-                                                      {String(i + 1)}
-                                                    </Text>
-                                                  </Box>
-                                                  <Text as="p" variant="bodySm">{step}</Text>
-                                                </InlineStack>
+                                                <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                                                  <div style={{ flexShrink: 0, width: 24, height: 24, borderRadius: '50%', background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <span style={{ color: '#fff', fontSize: '12px', fontWeight: 600, lineHeight: 1 }}>{i + 1}</span>
+                                                  </div>
+                                                  <Text as="p" variant="bodySm">{step.replace(/^Step\s+\d+:\s*/i, '')}</Text>
+                                                </div>
                                               ))}
                                             </BlockStack>
 
