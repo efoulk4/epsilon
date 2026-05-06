@@ -72,14 +72,32 @@ function extractImageUrl(html: string): string | null {
   return m ? m[1] : null
 }
 
+function humanReadableElement(html: string, target: string[]): string {
+  const tag = html.match(/^<(\w+)/)?.[1] ?? 'element'
+  const id = html.match(/\bid="([^"]+)"/)?.[1]
+  const name = html.match(/\bname="([^"]+)"/)?.[1]
+  const type = html.match(/\btype="([^"]+)"/)?.[1]
+  const role = html.match(/\brole="([^"]+)"/)?.[1]
+  const ariaLabel = html.match(/\baria-label="([^"]+)"/)?.[1]
+  const placeholder = html.match(/\bplaceholder="([^"]+)"/)?.[1]
+  const selector = target.join(' > ')
+
+  if (ariaLabel) return `${tag} labeled "${ariaLabel}"`
+  if (placeholder) return `${tag} with placeholder "${placeholder}"`
+  if (id) return `${tag}#${id}${type ? ` (${type})` : ''}`
+  if (name) return `${tag} named "${name}"${type ? ` (${type})` : ''}`
+  if (role) return `${tag} with role "${role}"`
+  return selector || tag
+}
+
 export function ViolationList({ violations, shop, isEmbedded }: ViolationListProps) {
   const getIdToken = useIdToken()
 
   const [expandedImpact, setExpandedImpact] = useState<Partial<Record<ImpactLevel, boolean>>>({
     critical: true,
     serious: true,
-    moderate: false,
-    minor: false,
+    moderate: true,
+    minor: true,
   })
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
   const [fixingViolations, setFixingViolations] = useState<Set<string>>(new Set())
@@ -218,7 +236,7 @@ export function ViolationList({ violations, shop, isEmbedded }: ViolationListPro
                             return (
                               <Box key={nodeIndex} background="bg-surface-secondary" padding="300" borderRadius="200">
                                 <BlockStack gap="200">
-                                  <code style={{ fontSize: '12px', wordBreak: 'break-all' }}>{node.html}</code>
+                                  <Text as="p" variant="bodySm" fontWeight="semibold">{humanReadableElement(node.html, node.target)}</Text>
                                   <Text as="p" variant="bodySm" tone="subdued">Selector: {node.target.join(' > ')}</Text>
                                   {node.pageUrl && (
                                     <Text as="p" variant="bodySm" tone="subdued">

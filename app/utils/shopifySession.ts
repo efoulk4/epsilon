@@ -47,7 +47,7 @@ export async function getShopifySession(shop: string): Promise<ShopifySession | 
   try {
     if (data.access_token && isEncrypted(data.access_token)) {
       data.access_token = decrypt(data.access_token)
-    } else {
+    } else if (data.access_token) {
       console.warn('[getShopifySession] Found unencrypted access token')
     }
     if (data.refresh_token && isEncrypted(data.refresh_token)) {

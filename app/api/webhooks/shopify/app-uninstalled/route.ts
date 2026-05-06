@@ -25,15 +25,16 @@ export async function POST(request: NextRequest) {
   if (isSupabaseConfigured) {
     const supabase = getSupabaseAdmin()
 
-    // Immediately revoke the session so the token can no longer be used.
-    // Full data deletion comes via shop/redact 48 hours later.
+    // Revoke tokens but preserve the row so trial_ends_at survives reinstalls.
+    // If the row were deleted, reinstalling would incorrectly grant a new trial.
+    // Full data deletion comes via shop/redact 48 hours later (GDPR webhook).
     const { error } = await supabase
       .from('shopify_sessions')
-      .delete()
+      .update({ access_token: '', refresh_token: null, updated_at: new Date().toISOString() })
       .eq('shop', shop)
 
     if (error) {
-      console.error('[app/uninstalled] Failed to revoke session')
+      console.error('[app/uninstalled] Failed to revoke session tokens')
       // Return 200 anyway — Shopify won't retry uninstall webhooks
     }
   }
