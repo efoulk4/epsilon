@@ -31,11 +31,8 @@ function verifyHmac(params: URLSearchParams, secret: string): boolean {
 
 async function registerWebhooks(shop: string, accessToken: string): Promise<void> {
   const webhooks = [
-    { topic: 'app/uninstalled',           address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/app-uninstalled` },
-    { topic: 'customers/data_request',    address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-data-request` },
-    { topic: 'customers/redact',          address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/customers-redact` },
-    { topic: 'shop/redact',               address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/shop-redact` },
-    { topic: 'app_subscriptions/update',  address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/subscriptions-update` },
+    { topic: 'app/uninstalled',          address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/app-uninstalled` },
+    { topic: 'app_subscriptions/update', address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/subscriptions-update` },
   ]
 
   for (const webhook of webhooks) {
