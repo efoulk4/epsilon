@@ -1,0 +1,20 @@
+name = "Epsilon"
+client_id = "618f5f101235f74d19086aaf5df80e9c"
+application_url = "https://epsilon-xi.vercel.app"
+embedded = true
+
+[access_scopes]
+scopes = "read_products,write_products,read_themes,write_themes,read_content,write_content"
+
+[auth]
+redirect_urls = ["https://epsilon-xi.vercel.app/api/auth/shopify/callback"]
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+  uri = "https://epsilon-xi.vercel.app/api/webhooks/shopify/compliance"
+
+[pos]
+embedded = false
