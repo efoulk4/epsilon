@@ -31,22 +31,39 @@ function verifyHmac(params: URLSearchParams, secret: string): boolean {
 
 async function registerWebhooks(shop: string, accessToken: string): Promise<void> {
   const webhooks = [
-    { topic: 'app/uninstalled',          address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/app-uninstalled` },
-    { topic: 'app_subscriptions/update', address: `${SHOPIFY_APP_URL}/api/webhooks/shopify/subscriptions-update` },
+    { topic: 'APP_UNINSTALLED',          callbackUrl: `${SHOPIFY_APP_URL}/api/webhooks/shopify/app-uninstalled` },
+    { topic: 'APP_SUBSCRIPTIONS_UPDATE', callbackUrl: `${SHOPIFY_APP_URL}/api/webhooks/shopify/subscriptions-update` },
   ]
+
+  const mutation = `
+    mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+      webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+        webhookSubscription { id }
+        userErrors { field message }
+      }
+    }
+  `
 
   for (const webhook of webhooks) {
     try {
-      const res = await fetch(`https://${shop}/admin/api/2024-10/webhooks.json`, {
+      const res = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': accessToken,
         },
-        body: JSON.stringify({ webhook: { topic: webhook.topic, address: webhook.address, format: 'json' } }),
+        body: JSON.stringify({
+          query: mutation,
+          variables: {
+            topic: webhook.topic,
+            webhookSubscription: { callbackUrl: webhook.callbackUrl, format: 'JSON' },
+          },
+        }),
       })
-      if (!res.ok && res.status !== 422) {
-        console.error(`[registerWebhooks] Failed to register ${webhook.topic}: ${res.status}`)
+      const json = await res.json()
+      const errors = json?.data?.webhookSubscriptionCreate?.userErrors
+      if (errors?.length > 0) {
+        console.error(`[registerWebhooks] ${webhook.topic} userErrors:`, errors)
       }
     } catch (err) {
       console.error(`[registerWebhooks] Error registering ${webhook.topic}:`, err instanceof Error ? err.message : err)
