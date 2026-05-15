@@ -4,10 +4,21 @@ import { requireVerifiedShop } from '@/app/utils/auth'
 import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 
 const genAI = process.env.GOOGLE_API_KEY
   ? new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
   : null
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null
+
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('503') || msg.includes('unavailable') || msg.includes('high demand') || msg.includes('overloaded') || msg.includes('rate limit') || msg.includes('429')
+}
 
 interface FixContext {
   productId: string
@@ -30,9 +41,9 @@ interface FixResult {
  * Generate content with Gemini for a specific product content field.
  */
 async function generateContent(ctx: FixContext): Promise<string> {
-  if (!genAI) throw new Error('Gemini API key not configured')
+  if (!genAI && !anthropic) throw new Error('No AI provider configured')
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+  const model = genAI?.getGenerativeModel({ model: 'gemini-2.5-flash' })
 
   const context = `
 Product title: "${ctx.productTitle}"
@@ -85,8 +96,30 @@ Requirements:
 - Output ONLY the description text, nothing else`,
   }
 
-  const result = await model.generateContent(prompts[ctx.fixType])
-  return result.response.text().trim()
+  const prompt = prompts[ctx.fixType]
+
+  if (model) {
+    try {
+      const result = await model.generateContent(prompt)
+      return result.response.text().trim()
+    } catch (err) {
+      if (!isTransientError(err)) throw err
+      console.warn('[generateContent] Gemini transient error, falling back to Claude:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  if (anthropic) {
+    const msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const block = msg.content[0]
+    if (block.type === 'text') return block.text.trim()
+    throw new Error('Unexpected Claude response type')
+  }
+
+  throw new Error('No AI provider available')
 }
 
 /**
@@ -158,8 +191,8 @@ export async function fixProductContentWithAI(
       }
     }
 
-    if (!genAI) {
-      return { success: false, error: 'Gemini API key not configured' }
+    if (!genAI && !anthropic) {
+      return { success: false, error: 'No AI provider configured — add GOOGLE_API_KEY or ANTHROPIC_API_KEY' }
     }
 
     const generatedContent = await generateContent(ctx)

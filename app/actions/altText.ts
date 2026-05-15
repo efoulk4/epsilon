@@ -1,6 +1,7 @@
 'use server'
 
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import { validateImageURL } from '@/app/utils/ssrf-protection'
 import { requireVerifiedShop } from '@/app/utils/auth'
 import { checkRateLimit, RATE_LIMITS } from '@/app/utils/rateLimit'
@@ -8,6 +9,16 @@ import { shopifyGraphQL } from '@/app/utils/shopifyClient'
 
 const apiKey = process.env.GOOGLE_API_KEY || ''
 const isGeminiConfigured = apiKey && apiKey !== 'your_google_gemini_api_key'
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null
+
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return msg.includes('503') || msg.includes('unavailable') || msg.includes('high demand') || msg.includes('overloaded') || msg.includes('rate limit') || msg.includes('429')
+}
 
 export async function generateAltText(
   imageUrl: string,
@@ -25,10 +36,10 @@ export async function generateAltText(
     }
   }
 
-  if (!isGeminiConfigured) {
+  if (!isGeminiConfigured && !anthropic) {
     return {
       success: false,
-      error: 'Gemini API key not configured. Please add GOOGLE_API_KEY to .env.local',
+      error: 'No AI provider configured — add GOOGLE_API_KEY or ANTHROPIC_API_KEY',
     }
   }
 
@@ -42,16 +53,10 @@ export async function generateAltText(
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
-
     // Fetch the image — redirect: 'error' prevents SSRF via open redirect
     const imageResponse = await fetch(imageUrl, { redirect: 'error' })
     if (!imageResponse.ok) {
-      return {
-        success: false,
-        error: 'Failed to fetch image from URL',
-      }
+      return { success: false, error: 'Failed to fetch image from URL' }
     }
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -67,23 +72,38 @@ export async function generateAltText(
 
 Provide ONLY the alt text, nothing else.`
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType,
-          data: base64Image,
-        },
-      },
-      prompt,
-    ])
-
-    const response = result.response
-    const altText = response.text().trim()
-
-    return {
-      success: true,
-      altText,
+    if (isGeminiConfigured) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey)
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+        const result = await model.generateContent([
+          { inlineData: { mimeType, data: base64Image } },
+          prompt,
+        ])
+        return { success: true, altText: result.response.text().trim() }
+      } catch (err) {
+        if (!isTransientError(err)) throw err
+        console.warn('[generateAltText] Gemini transient error, falling back to Claude:', err instanceof Error ? err.message : err)
+      }
     }
+
+    if (anthropic) {
+      const msg = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 256,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64Image } },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      })
+      const block = msg.content[0]
+      if (block.type === 'text') return { success: true, altText: block.text.trim() }
+    }
+
+    return { success: false, error: 'No AI provider available' }
   } catch (error) {
     console.error('Error generating alt text:', error)
     return {
