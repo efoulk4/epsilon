@@ -10,7 +10,7 @@ scopes = "read_products,write_products,read_themes,write_themes,read_content,wri
 redirect_urls = ["https://epsilon-xi.vercel.app/api/auth/shopify/callback"]
 
 [webhooks]
-api_version = "2024-10"
+api_version = "2025-04"
 
   [[webhooks.subscriptions]]
   compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]

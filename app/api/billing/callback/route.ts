@@ -15,7 +15,7 @@ async function getActiveSubscriptionStatus(shop: string, accessToken: string): P
       }
     }
   `
-  const res = await fetch(`https://${shop}/admin/api/2024-10/graphql.json`, {
+  const res = await fetch(`https://${shop}/admin/api/2025-04/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
