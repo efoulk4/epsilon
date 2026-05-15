@@ -43,6 +43,29 @@ export async function getPlanStatus(idToken?: string): Promise<PlanStatus> {
   }
 }
 
+async function cancelActiveSubscriptions(shop: string): Promise<void> {
+  const listQuery = `
+    query {
+      currentAppInstallation {
+        activeSubscriptions { id }
+      }
+    }
+  `
+  const listData = await shopifyGraphQL(shop, listQuery, {})
+  const subs = listData?.currentAppInstallation?.activeSubscriptions ?? []
+
+  const cancelMutation = `
+    mutation appSubscriptionCancel($id: ID!) {
+      appSubscriptionCancel(id: $id) {
+        userErrors { field message }
+      }
+    }
+  `
+  for (const sub of subs) {
+    await shopifyGraphQL(shop, cancelMutation, { id: sub.id })
+  }
+}
+
 export async function createSubscription(
   planKey: 'basic' | 'pro',
   idToken?: string
@@ -61,6 +84,9 @@ export async function createSubscription(
   `
 
   try {
+    // Cancel any existing subscription before creating a new one (enables plan switching)
+    await cancelActiveSubscriptions(shop)
+
     const isTest = process.env.NODE_ENV !== 'production'
     const data = await shopifyGraphQL(shop, mutation, {
       name: `Epsilon ${plan.name}`,

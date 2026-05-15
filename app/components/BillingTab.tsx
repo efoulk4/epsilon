@@ -58,11 +58,12 @@ interface PlanCardProps {
   planKey: 'basic' | 'pro'
   isCurrent: boolean
   isTrialing: boolean
+  isPaid: boolean
   onUpgrade: (plan: 'basic' | 'pro') => void
   loading: boolean
 }
 
-function PlanCard({ name, price, features, planKey, isCurrent, isTrialing, onUpgrade, loading }: PlanCardProps) {
+function PlanCard({ name, price, features, planKey, isCurrent, isTrialing, isPaid, onUpgrade, loading }: PlanCardProps) {
   const isPro = planKey === 'pro'
   return (
     <Card>
@@ -100,7 +101,7 @@ function PlanCard({ name, price, features, planKey, isCurrent, isTrialing, onUpg
             loading={loading}
             fullWidth
           >
-            {isTrialing ? `Subscribe to ${name}` : `Upgrade to ${name}`}
+            {isTrialing ? `Subscribe to ${name}` : isPaid ? `Switch to ${name}` : `Upgrade to ${name}`}
           </Button>
         )}
       </BlockStack>
@@ -239,49 +240,48 @@ export function BillingTab() {
       {/* Legal value prop — shown to everyone */}
       <LegalValueProp />
 
-      {/* Plan cards — hide if already on pro and not trialing */}
-      {!(plan === 'pro' && !trialActive) && (
-        <BlockStack gap="300">
-          <Text as="h2" variant="headingMd">
-            {trialActive || plan === 'free' ? 'Choose a Plan' : 'Upgrade'}
-          </Text>
-          <InlineGrid columns={2} gap="400">
-            <PlanCard
-              name="Basic"
-              price="9"
-              planKey="basic"
-              isCurrent={plan === 'basic'}
-              isTrialing={trialActive}
-              onUpgrade={handleUpgrade}
-              loading={loadingPlan === 'basic'}
-              features={[
-                'Monthly automated full audit',
-                '1 manual audit per day',
-                'Full violation reports',
-                'AI-powered fix suggestions',
-                'Compliance history log',
-              ]}
-            />
-            <PlanCard
-              name="Pro"
-              price="29"
-              planKey="pro"
-              isCurrent={plan === 'pro'}
-              isTrialing={trialActive}
-              onUpgrade={handleUpgrade}
-              loading={loadingPlan === 'pro'}
-              features={[
-                'Weekly automated full audit',
-                'Unlimited manual audits',
-                'Full violation reports',
-                'AI-powered fix suggestions',
-                'Compliance history log',
-                'Priority audit scheduling',
-              ]}
-            />
-          </InlineGrid>
-        </BlockStack>
-      )}
+      <BlockStack gap="300">
+        <Text as="h2" variant="headingMd">
+          {trialActive || plan === 'free' ? 'Choose a Plan' : 'Change Plan'}
+        </Text>
+        <InlineGrid columns={2} gap="400">
+          <PlanCard
+            name="Basic"
+            price="9"
+            planKey="basic"
+            isCurrent={plan === 'basic'}
+            isTrialing={trialActive}
+            isPaid={isPaid}
+            onUpgrade={handleUpgrade}
+            loading={loadingPlan === 'basic'}
+            features={[
+              'Monthly automated full audit',
+              '1 manual audit per day',
+              'Full violation reports',
+              'AI-powered fix suggestions',
+              'Compliance history log',
+            ]}
+          />
+          <PlanCard
+            name="Pro"
+            price="29"
+            planKey="pro"
+            isCurrent={plan === 'pro'}
+            isTrialing={trialActive}
+            isPaid={isPaid}
+            onUpgrade={handleUpgrade}
+            loading={loadingPlan === 'pro'}
+            features={[
+              'Weekly automated full audit',
+              'Unlimited manual audits',
+              'Full violation reports',
+              'AI-powered fix suggestions',
+              'Compliance history log',
+              'Priority audit scheduling',
+            ]}
+          />
+        </InlineGrid>
+      </BlockStack>
     </BlockStack>
   )
 }
